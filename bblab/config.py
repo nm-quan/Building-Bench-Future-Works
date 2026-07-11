@@ -47,10 +47,18 @@ TRAINED_NEURAL_MODELS = [
 # fine to let it span multiple Colab sessions.
 PAPER_MODELS = ["transformer_s", "transformer_m", "transformer_l"]
 TREE_MODELS = ["xgboost", "lightgbm"]
-ALL_MODELS = PERSISTENCE_MODELS + TRAINED_NEURAL_MODELS + PAPER_MODELS + TREE_MODELS
+# Novel architectures adapted from post-BuildingsBench literature (see study.ipynb
+# intro for citations): TFT-style variable selection (tftlite), xLSTM's sLSTM
+# exponential-gated cell (xlstm), TSMixer+FITS frequency extrapolation with a
+# degree-day correction term (spectramix), and Mamba/S6 selective-state-space
+# scan (mamba) -- all operate over 24h patches (7 patches per 168h window)
+# instead of raw hourly steps to keep the sequential-recurrence ones (xlstm,
+# mamba) cheap enough for the Colab training budget.
+NOVEL_MODELS = ["tftlite", "xlstm", "spectramix", "mamba"]
+ALL_MODELS = PERSISTENCE_MODELS + TRAINED_NEURAL_MODELS + PAPER_MODELS + TREE_MODELS + NOVEL_MODELS
 BASELINE_MODEL = "persistence_avg"    # reference point for significance tests
 
-RNN_MODELS = {"lstm", "gru"}          # trained fp32 -- bf16 destabilizes RNNs
+RNN_MODELS = {"lstm", "gru", "xlstm"}  # trained fp32 -- bf16 destabilizes exponential/gated recurrence
 
 # ---------------------------------------------------------------------------
 # Training hyperparameters
