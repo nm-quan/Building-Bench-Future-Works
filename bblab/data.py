@@ -329,6 +329,14 @@ def build_dataset_cache(building_keys: pd.DataFrame, transforms: dict, paths: co
     N = loads.shape[0]
     is_res = np.array(["resstock" in r for r in release_of])
     btype = np.where(is_res, -1.0, 1.0).astype(np.float32)
+    # amy2018 releases are a real chronological year (so a genuine last-2-weeks
+    # holdout makes sense for validation); tmy3 releases are a synthetic
+    # "typical meteorological year" splice with no true chronological tail --
+    # confirmed from scripts/data_generation/create_index_files.py: val_idx_file
+    # entries are only ever written for the 2 amy2018 releases, using
+    # val_timerange=(Dec17,Dec31) i.e. the last 336h of the year; tmy3 releases
+    # use the full year for train_idx_file and contribute no val entries at all.
+    is_amy = np.array(["amy2018" in r for r in release_of])
 
     # release -> integer group id (shared calendar features per release)
     uniq_releases = sorted(release_tf_native.keys())
@@ -354,7 +362,7 @@ def build_dataset_cache(building_keys: pd.DataFrame, transforms: dict, paths: co
 
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     np.savez_compressed(cache_path, loads=loads, g_tf=g_tf, wuniq=wuniq,
-                         b2g=b2g, b2w=b2w, btype=btype, is_res=is_res, T=T_ref,
+                         b2g=b2g, b2w=b2w, btype=btype, is_res=is_res, is_amy=is_amy, T=T_ref,
                          keys=np.array(keys_list))
     return load_dataset_cache(cache_path)
 
@@ -364,6 +372,7 @@ def load_dataset_cache(cache_path: str) -> dict:
     return {
         "loads": d["loads"], "g_tf": d["g_tf"], "wuniq": d["wuniq"],
         "b2g": d["b2g"], "b2w": d["b2w"], "btype": d["btype"], "is_res": d["is_res"],
+        "is_amy": d["is_amy"],
         "T": int(d["T"]), "N": d["loads"].shape[0], "Ft": config.N_TIME, "Fw": config.N_WEATHER,
     }
 

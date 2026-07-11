@@ -80,6 +80,8 @@ def to_device_cache(ds: dict, dev: str) -> dict:
     ds["b2g_t"] = torch.tensor(ds["b2g"], dtype=torch.long, device=dev)
     ds["b2w_t"] = torch.tensor(ds["b2w"], dtype=torch.long, device=dev)
     ds["btype_t"] = torch.tensor(ds["btype"], dtype=torch.float32, device=dev)
+    if "is_amy" in ds:
+        ds["is_amy_t"] = torch.tensor(ds["is_amy"], dtype=torch.bool, device=dev)
     return ds
 
 
@@ -100,29 +102,40 @@ def _forward(model, yh, exo, yf):
 
 
 # ---------------------------------------------------------------------------
-# Training -- fixes the single-fixed-validation-window bug: samples
-# config.N_VAL_WINDOWS_PER_BUILDING window positions per validation building,
-# spread across the year, every epoch (not one fixed mid-year window).
+# Training -- validation matches the official BuildingsBench split: a
+# temporal holdout of the last config.VAL_HOLDOUT_HOURS (336h = 2 weeks) of
+# the year, on the amy2018-release buildings only (a real chronological year,
+# unlike the tmy3 releases' synthetic "typical year" splice -- see
+# create_index_files.py's val_timerange/train_amy2018_timerange). tmy3-release
+# buildings use the full year for training and never contribute to
+# validation, matching the paper exactly. This also fixes the earlier
+# single-fixed-validation-window bug: within the holdout range, samples
+# config.N_VAL_WINDOWS_PER_BUILDING fresh window positions per building every
+# epoch instead of one fixed window.
 # ---------------------------------------------------------------------------
 def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, patience=None,
-          steps=None, bs=None, lr=None, vfrac=None, amp=True, amp_dtype=torch.bfloat16,
+          steps=None, bs=None, lr=None, amp=True, amp_dtype=torch.bfloat16,
           clip=1.0, warmup_frac=0.03, log=False):
     epochs = epochs or config.EPOCHS
     patience = patience if patience is not None else config.PATIENCE
     steps = steps or config.STEPS
     bs = bs or config.BS
     lr = lr or config.LR
-    vfrac = vfrac if vfrac is not None else config.VFRAC
 
     try:
         opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4, fused=(dev == "cuda"))
     except TypeError:
         opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    Nv = max(1, int(ds["N"] * vfrac))
-    perm = torch.randperm(ds["N"], generator=torch.Generator().manual_seed(config.SEED)).to(dev)
-    val_b, train_pool = perm[:Nv], perm[Nv:]
-    smax = ds["T"] - config.WIN
+    T, hold = ds["T"], config.VAL_HOLDOUT_HOURS
+    is_amy = ds["is_amy_t"]
+    val_b = torch.nonzero(is_amy, as_tuple=True)[0]
+    assert val_b.numel() > 0, "no amy2018-release buildings in this cache -- can't build the official validation split"
+    # per-building training-window-start upper bound: amy2018 buildings stop
+    # short of the holdout range so no training window ever overlaps it;
+    # tmy3 buildings use the full year (matches train_tmy_timerange).
+    smax_train = torch.where(is_amy, T - hold - config.WIN, T - config.WIN).float()
+    val_lo, val_hi = T - hold, T - config.WIN  # shared window-start range within the holdout
 
     tot = epochs * steps
     warm = max(50, int(tot * warmup_frac))
@@ -141,8 +154,8 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
         for _ in range(steps):
             setlr(gstep)
             gstep += 1
-            b = train_pool[torch.randint(0, train_pool.numel(), (bs,), device=dev)]
-            s = torch.randint(0, smax, (bs,), device=dev)
+            b = torch.randint(0, ds["N"], (bs,), device=dev)
+            s = (torch.rand(bs, device=dev) * smax_train[b]).long()
             yh, yf, exo, _ = gather(ds, b, s, use_w, load_transform, dev)
             with ac():
                 mu_n, rs, mean, sd = _forward(model, yh, exo, yf)
@@ -157,7 +170,7 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
         vs = []
         with torch.no_grad():
             for _ in range(config.N_VAL_WINDOWS_PER_BUILDING):
-                s = torch.randint(0, smax, (len(val_b),), device=dev)
+                s = torch.randint(val_lo, val_hi + 1, (len(val_b),), device=dev)
                 for v0 in range(0, len(val_b), 128):
                     b = val_b[v0:v0 + 128]
                     sv = s[v0:v0 + 128]
