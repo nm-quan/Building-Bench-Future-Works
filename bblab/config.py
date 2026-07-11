@@ -80,6 +80,12 @@ LGB_WINDOWS, LGB_TREES, LGB_DEPTH = 80000, 500, 6
 N_TRAIN_BUILDINGS = 20000              # compute-bounded subsample of Buildings-900K
 
 # ---------------------------------------------------------------------------
+# Weather-value analyses (bblab/analysis.py)
+# ---------------------------------------------------------------------------
+ROLLOUT_STEPS = 3                      # autoregressive rollout: 3 x 24h = 72h total horizon
+EXTREME_PCT = 10                       # extreme day = top/bottom decile of window future temperature
+
+# ---------------------------------------------------------------------------
 # Paths -- resolved once, imported everywhere (no re-declaration in notebook cells)
 # ---------------------------------------------------------------------------
 def resolve_bench_root(default="/content/drive/MyDrive/quick/bench"):
@@ -100,7 +106,12 @@ class Paths:
 
         self.RESULTS_DIR = f"{self.BENCH}/results"
         self.WEIGHTS_DIR = f"{self.RESULTS_DIR}/weights"
-        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results.csv"
+        # v2: paper-global metrics + paper CRPS approximation + compute
+        # accounting. A new filename on purpose -- rows in the old
+        # sim_results.csv were computed under different metric definitions, and
+        # pointing at a fresh file makes the sweep re-EVALUATE everything while
+        # still reusing every trained checkpoint in WEIGHTS_DIR (no retraining).
+        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v2.csv"
         self.REAL_CSV = f"{self.RESULTS_DIR}/real_results.csv"
         self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results.csv"
 
@@ -108,9 +119,12 @@ class Paths:
         self.PERBUILDING_REAL_DIR = f"{self.RESULTS_DIR}/perbuilding_real"
         self.PERBUILDING_REAL_WEATHER_TEMP_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_temp"
 
+        self.FIGURES_DIR = f"{self.RESULTS_DIR}/figures"        # EDA + analysis plots (Drive)
+        self.ANALYSIS_DIR = f"{self.RESULTS_DIR}/analysis"      # weather-value analysis CSVs (Drive)
+
     def makedirs(self):
         for d in (self.RAW_CACHE_DIR, self.TRANSFORMS_DIR, self.RESULTS_DIR, self.WEIGHTS_DIR,
                   self.PERBUILDING_SIM_DIR, self.PERBUILDING_REAL_DIR,
-                  self.PERBUILDING_REAL_WEATHER_TEMP_DIR):
+                  self.PERBUILDING_REAL_WEATHER_TEMP_DIR, self.FIGURES_DIR, self.ANALYSIS_DIR):
             os.makedirs(d, exist_ok=True)
         return self

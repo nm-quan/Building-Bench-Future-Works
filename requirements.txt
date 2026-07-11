@@ -8,3 +8,4 @@ pyarrow>=14.0
 xgboost>=2.0
 lightgbm>=4.0
 awscli>=1.32
+matplotlib>=3.7
