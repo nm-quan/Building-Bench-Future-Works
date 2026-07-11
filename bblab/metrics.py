@@ -84,7 +84,10 @@ def gaussian_crps(y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.n
 
 def summarize_by_group(result: dict, is_res: np.ndarray) -> dict:
     """result: output of BuildingAccumulator.finalize(). Returns {"Com NRMSE":
-    median, "Res NRMSE": median, ...} -- per-building medians (secondary view)."""
+    median, "Res NRMSE": median, ...} -- the MEDIAN across per-building values.
+    This is the paper's published aggregation: evaluation/aggregate.py's
+    return_aggregate_median (np.median over per-building CV-RMSE/CRPS values,
+    used by zero_shot.py for every benchmark table, simulated and real)."""
     out = {}
     for label, mask in [("Com", ~is_res), ("Res", is_res)]:
         m = mask & result["valid"]
@@ -99,13 +102,13 @@ def summarize_by_group(result: dict, is_res: np.ndarray) -> dict:
 
 
 def summarize_global(result: dict, is_res: np.ndarray) -> dict:
-    """The paper's actual aggregation (buildings_bench.evaluation.metrics.Metric
-    with normalize=True: ONE pooled error over all windows of all buildings in
-    the group, divided by the pooled mean load): NRMSE = 100*sqrt(sum_se/n) /
-    (sum_y/n), NMAE = 100*(sum_ae/n)/(sum_y/n), CRPS = sum_crps/n (kWh,
-    unnormalized -- matching how the paper reports it). This is the
-    headline/paper-comparable number; per-building medians (summarize_by_group)
-    remain as a robustness view and feed the significance tests."""
+    """Pooled/global aggregation: ONE pooled error over all windows of all
+    buildings in the group, divided by the pooled mean load. NRMSE =
+    100*sqrt(sum_se/n)/(sum_y/n), NMAE = 100*(sum_ae/n)/(sum_y/n), CRPS =
+    sum_crps/n (kWh). NOTE: this matches how the paper's pretrain.py monitors
+    validation, but their PUBLISHED tables use the median across buildings
+    (summarize_by_group) -- so the median is the headline here and this pooled
+    view is secondary (tail-sensitive: dominated by the worst buildings)."""
     out = {}
     for label, mask in [("Com", ~is_res), ("Res", is_res)]:
         m = mask & (result["_cnt"] > 0)
@@ -122,10 +125,11 @@ def summarize_global(result: dict, is_res: np.ndarray) -> dict:
 
 
 def summarize(result: dict, is_res: np.ndarray) -> dict:
-    """Headline (paper-global) metrics + per-building medians as '<key> med'."""
-    out = summarize_global(result, is_res)
-    for k, v in summarize_by_group(result, is_res).items():
-        out[f"{k} med"] = v
+    """Headline = median across buildings (the paper's published aggregation,
+    directly comparable to their tables) + pooled metrics as '<key> pooled'."""
+    out = summarize_by_group(result, is_res)
+    for k, v in summarize_global(result, is_res).items():
+        out[f"{k} pooled"] = v
     return out
 
 
