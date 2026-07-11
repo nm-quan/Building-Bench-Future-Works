@@ -10,13 +10,12 @@ Box-Cox-transformed (via the official, already-fit transform) before RevIN,
 matching the official Buildings900K.__getitem__ exactly (`apply_scaler_
 transform='boxcox'`). Point-forecast metrics (NRMSE/NMAE) are computed after
 `undo_transform` back to physical kWh, matching how the paper always reports
-them. CRPS is computed in Box-Cox-transformed space (documented deviation):
-Box-Cox is a nonlinear transform, so a predicted Gaussian's sigma has no
-closed-form inverse into physical units without a delta-method
-approximation; CRPS is still a valid proper scoring rule in the transformed
-space, and is computed identically for every model, so relative
-model-to-model CRPS comparisons remain meaningful even though the absolute
-number isn't in kWh.
+them. CRPS uses the paper's own approximation for Box-Cox-trained Gaussian
+heads (scripts/pretrain.py, apply_scaler_transform=='boxcox' branch): push
+mu, mu+sigma, and mu-sigma through the inverse transform and rebuild an
+approximate kWh-space Gaussian whose sigma is the average of the two
+half-widths -- see `sigma_to_kw`. This makes CRPS directly comparable to the
+paper's published numbers (in kWh).
 """
 import math
 import os
@@ -90,6 +89,24 @@ def gaussian_nll(mu, raw, target):
     return (0.5 * math.log(2 * math.pi) + torch.log(sigma) + 0.5 * ((target - mu) / sigma) ** 2).mean()
 
 
+def sigma_to_kw(load_transform, mu_bc: np.ndarray, sigma_bc: np.ndarray):
+    """The paper's approximate kWh-space Gaussian for a Box-Cox-space Gaussian
+    (ported from scripts/pretrain.py, apply_scaler_transform=='boxcox'):
+        mu_kw       = undo(mu)
+        sigma_upper = undo(mu + sigma) - mu_kw
+        sigma_lower = mu_kw - undo(mu - sigma)
+        sigma_kw    = (sigma_upper + sigma_lower) / 2
+    Returns (mu_kw, sigma_kw), both numpy. Non-finite sigmas (inverse Box-Cox
+    leaving its domain in the far tail) degrade to ~0, where Gaussian CRPS
+    smoothly reduces to absolute error rather than poisoning the accumulator."""
+    mu_kw = load_transform.undo_transform(mu_bc)
+    upper = load_transform.undo_transform(mu_bc + sigma_bc)
+    lower = load_transform.undo_transform(mu_bc - sigma_bc)
+    sigma_kw = ((upper - mu_kw) + (mu_kw - lower)) / 2
+    sigma_kw = np.clip(np.nan_to_num(sigma_kw, nan=0.0, posinf=0.0, neginf=0.0), 1e-6, None)
+    return mu_kw, sigma_kw
+
+
 def _forward(model, yh, exo, yf):
     """A handful of models (the paper's own Transformer-S/M/L) are trained
     with teacher forcing -- they need the ground-truth target during
@@ -148,6 +165,7 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
 
     ac = lambda: torch.autocast("cuda", dtype=amp_dtype, enabled=(amp and dev == "cuda"))
     best, bstate, bad = 1e9, None, 0
+    t_start, ep = time.time(), -1
 
     for ep in range(epochs):
         model.train()
@@ -192,7 +210,10 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
 
     if bstate:
         model.load_state_dict(bstate)
-    return best
+    # compute-budget accounting, persisted by run_training_sweep to the
+    # results CSV on Drive (epochs actually run incl. early stop, wall time)
+    stats = {"epochs": ep + 1, "train_sec": round(time.time() - t_start, 1)}
+    return best, stats
 
 
 # ---------------------------------------------------------------------------
@@ -217,18 +238,17 @@ def evaluate(model, ds: dict, dev: str, use_w: bool, load_transform, stride=24, 
         with ac():
             mu_n, rs, mean, sd = model(yh, exo)
         mu_n, mean, sd = mu_n.float(), mean.float(), sd.float()
-        mu_bc = mu_n * sd + mean
-        mu_kw = torch.from_numpy(load_transform.undo_transform(mu_bc.cpu().numpy())).to(dev).float()
+        mu_bc = (mu_n * sd + mean).cpu().numpy()
         # rs (raw pre-softplus scale) is None for CopyLastDay/CopyLastWeekPersistence,
         # matching the official model's predict() -> (forecast, None) -- no CRPS for those.
-        sigma_np = None
         if rs is not None:
-            sigma_bc = (F.softplus(rs.float()) + 1e-3) * sd
-            sigma_np = sigma_bc.cpu().numpy()
-        acc.update(b.cpu().numpy(), yf_kw.cpu().numpy(), mu_kw.cpu().numpy(),
-                    sigma=sigma_np)  # CRPS in Box-Cox space (see module docstring)
+            sigma_bc = ((F.softplus(rs.float()) + 1e-3) * sd).cpu().numpy()
+            mu_kw, sigma_np = sigma_to_kw(load_transform, mu_bc, sigma_bc)  # paper's kWh approximation
+        else:
+            mu_kw, sigma_np = load_transform.undo_transform(mu_bc), None
+        acc.update(b.cpu().numpy(), yf_kw.cpu().numpy(), mu_kw, sigma=sigma_np)
     res = acc.finalize()
-    out = metrics.summarize_by_group(res, ds["is_res"])
+    out = metrics.summarize(res, ds["is_res"])
     out.update({"_nrmse": res["nrmse"], "_nmae": res["nmae"], "_crps": res["crps"], "_is_res": ds["is_res"]})
     return out
 
@@ -308,7 +328,7 @@ def _real_window_batches(buildings: list, weather_cache, weather_transforms, n_t
 def _real_summary(acc, buildings, matched_bidx=None):
     res = acc.finalize()
     is_res = np.array([b["building_type"] < 0 for b in buildings])
-    out = metrics.summarize_by_group(res, is_res)
+    out = metrics.summarize(res, is_res)
     out["n_buildings"] = int(res["valid"].sum())
     if matched_bidx is not None:
         out["n_weather_matched"] = len(matched_bidx)
@@ -338,14 +358,14 @@ def evaluate_real(model, buildings: list, dev: str, load_transform, weather_cach
         with ac():
             mu_n, rs, mean, sd = model(yh_bc, exo)
         mu_n, mean, sd = mu_n.float(), mean.float(), sd.float()
-        mu_bc = mu_n * sd + mean
-        mu_kw = torch.from_numpy(load_transform.undo_transform(mu_bc.cpu().numpy())).to(dev).float()
-        sigma_np = None
+        mu_bc = (mu_n * sd + mean).cpu().numpy()
         if rs is not None:
-            sigma_bc = (F.softplus(rs.float()) + 1e-3) * sd
-            sigma_np = sigma_bc.cpu().numpy()
+            sigma_bc = ((F.softplus(rs.float()) + 1e-3) * sd).cpu().numpy()
+            mu_kw, sigma_np = sigma_to_kw(load_transform, mu_bc, sigma_bc)
+        else:
+            mu_kw, sigma_np = load_transform.undo_transform(mu_bc), None
 
-        acc.update(np.array(bidx), yf_kw.cpu().numpy(), mu_kw.cpu().numpy(), sigma=sigma_np)
+        acc.update(np.array(bidx), yf_kw.cpu().numpy(), mu_kw, sigma=sigma_np)
 
     return _real_summary(acc, buildings, matched if weather_cache is not None else None)
 
@@ -368,9 +388,9 @@ def evaluate_real_tree(mdl, sigma: np.ndarray, buildings: list, load_transform, 
         exo = torch.from_numpy(exo_np).float()
         X, mu, sd = models._tree_xy(yh_bc, exo, config.L)
         pred_bc = models.tree_predict(mdl, X) * sd[:, None] + mu[:, None]
-        pred_kw = load_transform.undo_transform(pred_bc)
         sigma_bc = np.broadcast_to(sigma[None, :], pred_bc.shape) * sd[:, None]
-        acc.update(np.array(bidx), yf_kw_np, pred_kw, sigma=sigma_bc)
+        pred_kw, sigma_kw = sigma_to_kw(load_transform, pred_bc, sigma_bc)
+        acc.update(np.array(bidx), yf_kw_np, pred_kw, sigma=sigma_kw)
 
     return _real_summary(acc, buildings, matched if weather_cache is not None else None)
 
@@ -388,8 +408,18 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
     import csv
     import pandas as pd
 
-    fields = ["model", "condition", "weather", "com_nrmse", "res_nrmse", "com_nmae", "res_nmae",
-              "com_crps", "res_crps", "val_nll", "params", "sec"]
+    # v2 schema: paper-global headline metrics + per-building medians (＿med)
+    # + compute-budget accounting (epochs, train/eval wall time, GPU, peak
+    # memory). Written to paths.SIM_CSV (sim_results_v2.csv): a NEW file, so
+    # pairs evaluated under the old metric definitions re-evaluate -- but
+    # training is NEVER repeated: any existing checkpoint on Drive
+    # ({model}_{cond}.pt / .pkl) is loaded instead of retraining, so
+    # already-trained models only pay the ~15s re-scoring cost.
+    fields = ["model", "condition", "weather",
+              "com_nrmse", "res_nrmse", "com_nmae", "res_nmae", "com_crps", "res_crps",
+              "com_nrmse_med", "res_nrmse_med",
+              "val_nll", "params", "epochs", "train_sec", "eval_sec", "sec",
+              "gpu", "peak_mem_gb", "reused_ckpt"]
     if reset and os.path.exists(paths.SIM_CSV):
         os.remove(paths.SIM_CSV)
     if not os.path.exists(paths.SIM_CSV):
@@ -399,6 +429,8 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
         d = pd.read_csv(paths.SIM_CSV)
         done = {(r.model, r.condition) for _, r in d.iterrows()}
 
+    gpu_name = torch.cuda.get_device_name(0) if dev == "cuda" else "cpu"
+
     run_list = [(m, c) for m in model_names for c in conditions]
     for name, cond in run_list:
         if (name, cond) in done:
@@ -407,15 +439,20 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
             continue
         use_w = conditions[cond]
         t0 = time.time()
+        tstats = {"epochs": 0, "train_sec": 0.0}  # stays zero when a checkpoint is reused
+        reused = False
+        if dev == "cuda":
+            torch.cuda.reset_peak_memory_stats()
         try:
             if name in ("xgboost", "lightgbm"):
                 ckpt = f"{paths.WEIGHTS_DIR}/{name}_{cond}.pkl"
                 if os.path.exists(ckpt):
                     mdl, sigma = pickle.load(open(ckpt, "rb"))
-                    params = 0
+                    reused = True
                 else:
                     if log:
                         print(f"fit {name}/{cond}...", flush=True)
+                    t_fit = time.time()
                     gather_fn = lambda ds, b, s, use_w: gather(ds, b, s, use_w, load_transform, dev)[:3]
                     mdl, sigma = models.tree_fit(name, gather_fn, ds_train, dev, use_w, config.L, config.H,
                                                   n_windows=config.XGB_WINDOWS if name == "xgboost" else config.LGB_WINDOWS,
@@ -423,7 +460,9 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
                                                   max_depth=config.XGB_DEPTH if name == "xgboost" else config.LGB_DEPTH,
                                                   hours=ds_train["T"])
                     pickle.dump((mdl, sigma), open(ckpt, "wb"))
-                    params = 0
+                    tstats["train_sec"] = round(time.time() - t_fit, 1)
+                params = 0
+                t_eval = time.time()
                 res = _eval_tree(mdl, sigma, ds_sim, dev, use_w, load_transform)
                 val = float("nan")
             else:
@@ -435,19 +474,23 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
                 ckpt = f"{paths.WEIGHTS_DIR}/{name}_{cond}.pt"
                 if params > 0 and os.path.exists(ckpt):
                     base.load_state_dict(torch.load(ckpt, map_location=dev))
-                    val = float("nan")
+                    val, reused = float("nan"), True
+                    if log:
+                        print(f"reuse checkpoint {name}/{cond} (no retraining)", flush=True)
                 elif params == 0:
                     val = float("nan")
                 else:
                     if log:
                         print(f"train {name}/{cond} ({params:,}p, amp={amp_this})...", flush=True)
-                    val = train(base, ds_train, dev, use_w, load_transform, amp=amp_this, log=log)
+                    val, tstats = train(base, ds_train, dev, use_w, load_transform, amp=amp_this, log=log)
                     torch.save(base.state_dict(), ckpt)
+                t_eval = time.time()
                 res = evaluate(base, ds_sim, dev, use_w, load_transform, amp=amp_this)
 
             os.makedirs(paths.PERBUILDING_SIM_DIR, exist_ok=True)
             pickle.dump({k: res[k] for k in ("_nrmse", "_nmae", "_crps", "_is_res")},
                         open(f"{paths.PERBUILDING_SIM_DIR}/{name}_{cond}.pkl", "wb"))
+            peak_gb = round(torch.cuda.max_memory_allocated() / 1e9, 2) if dev == "cuda" else 0.0
             row = {"model": name, "condition": cond, "weather": use_w,
                    "com_nrmse": round(res.get("Com NRMSE", float("nan")), 3),
                    "res_nrmse": round(res.get("Res NRMSE", float("nan")), 3),
@@ -455,11 +498,16 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
                    "res_nmae": round(res.get("Res NMAE", float("nan")), 3),
                    "com_crps": round(res.get("Com CRPS", float("nan")), 3),
                    "res_crps": round(res.get("Res CRPS", float("nan")), 3),
+                   "com_nrmse_med": round(res.get("Com NRMSE med", float("nan")), 3),
+                   "res_nrmse_med": round(res.get("Res NRMSE med", float("nan")), 3),
                    "val_nll": (round(val, 4) if val == val else ""), "params": params,
-                   "sec": round(time.time() - t0)}
+                   "epochs": tstats["epochs"], "train_sec": tstats["train_sec"],
+                   "eval_sec": round(time.time() - t_eval, 1), "sec": round(time.time() - t0),
+                   "gpu": gpu_name, "peak_mem_gb": peak_gb, "reused_ckpt": reused}
             csv.DictWriter(open(paths.SIM_CSV, "a", newline=""), fields).writerow(row)
             if log:
-                print(f"  done {row['sec']}s  Com NRMSE={row['com_nrmse']}  Res NRMSE={row['res_nrmse']}\n")
+                print(f"  done {row['sec']}s  Com NRMSE={row['com_nrmse']}  Res NRMSE={row['res_nrmse']}"
+                      f"  (med {row['com_nrmse_med']}/{row['res_nrmse_med']})\n")
         except Exception as e:
             print(f"  FAILED {name}/{cond}: {type(e).__name__}: {e}")
             import traceback
@@ -480,10 +528,10 @@ def _eval_tree(mdl, sigma, ds: dict, dev: str, use_w: bool, load_transform, stri
         yh, yf_bc, exo, yf_kw = gather(ds, b, s, use_w, load_transform, dev)
         X, mu, sd = models._tree_xy(yh, exo, config.L)
         pred_bc = models.tree_predict(mdl, X) * sd[:, None] + mu[:, None]
-        pred_kw = load_transform.undo_transform(pred_bc)
         sigma_bc = np.broadcast_to(sigma[None, :], pred_bc.shape) * sd[:, None]
-        acc.update(b.cpu().numpy(), yf_kw.cpu().numpy(), pred_kw, sigma=sigma_bc)
+        pred_kw, sigma_kw = sigma_to_kw(load_transform, pred_bc, sigma_bc)
+        acc.update(b.cpu().numpy(), yf_kw.cpu().numpy(), pred_kw, sigma=sigma_kw)
     res = acc.finalize()
-    out = metrics.summarize_by_group(res, ds["is_res"])
+    out = metrics.summarize(res, ds["is_res"])
     out.update({"_nrmse": res["nrmse"], "_nmae": res["nmae"], "_crps": res["crps"], "_is_res": ds["is_res"]})
     return out

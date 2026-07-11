@@ -66,7 +66,11 @@ class BuildingAccumulator:
         nmae = np.full_like(self.sae, np.nan)
         nrmse[ok] = 100 * rmse[ok] / meany[ok]
         nmae[ok] = 100 * mae[ok] / meany[ok]
-        return {"nrmse": nrmse, "nmae": nmae, "crps": crps, "valid": ok}
+        return {"nrmse": nrmse, "nmae": nmae, "crps": crps, "valid": ok,
+                # raw per-building sums, so global (paper-style) metrics can be
+                # aggregated exactly from the same accumulation pass
+                "_se": self.se, "_sae": self.sae, "_sy": self.sy,
+                "_cr": self.cr, "_cnt": self.cnt, "_has_sigma": self.has_sigma}
 
 
 def gaussian_crps(y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
@@ -80,7 +84,7 @@ def gaussian_crps(y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.n
 
 def summarize_by_group(result: dict, is_res: np.ndarray) -> dict:
     """result: output of BuildingAccumulator.finalize(). Returns {"Com NRMSE":
-    median, "Res NRMSE": median, ...} matching the paper's Com/Res reporting."""
+    median, "Res NRMSE": median, ...} -- per-building medians (secondary view)."""
     out = {}
     for label, mask in [("Com", ~is_res), ("Res", is_res)]:
         m = mask & result["valid"]
@@ -91,6 +95,37 @@ def summarize_by_group(result: dict, is_res: np.ndarray) -> dict:
                 # forecast (CopyLastDay/CopyLastWeekPersistence) -- nanmedian's
                 # "All-NaN slice" warning is expected there, not a bug.
                 out[f"{label} {metric.upper()}"] = float(np.nanmedian(vals)) if np.isfinite(vals).any() else float("nan")
+    return out
+
+
+def summarize_global(result: dict, is_res: np.ndarray) -> dict:
+    """The paper's actual aggregation (buildings_bench.evaluation.metrics.Metric
+    with normalize=True: ONE pooled error over all windows of all buildings in
+    the group, divided by the pooled mean load): NRMSE = 100*sqrt(sum_se/n) /
+    (sum_y/n), NMAE = 100*(sum_ae/n)/(sum_y/n), CRPS = sum_crps/n (kWh,
+    unnormalized -- matching how the paper reports it). This is the
+    headline/paper-comparable number; per-building medians (summarize_by_group)
+    remain as a robustness view and feed the significance tests."""
+    out = {}
+    for label, mask in [("Com", ~is_res), ("Res", is_res)]:
+        m = mask & (result["_cnt"] > 0)
+        if not m.any():
+            continue
+        n = result["_cnt"][m].sum()
+        meany = result["_sy"][m].sum() / n
+        if meany <= 1e-6:
+            continue
+        out[f"{label} NRMSE"] = float(100 * np.sqrt(result["_se"][m].sum() / n) / meany)
+        out[f"{label} NMAE"] = float(100 * (result["_sae"][m].sum() / n) / meany)
+        out[f"{label} CRPS"] = float(result["_cr"][m].sum() / n) if result.get("_has_sigma") else float("nan")
+    return out
+
+
+def summarize(result: dict, is_res: np.ndarray) -> dict:
+    """Headline (paper-global) metrics + per-building medians as '<key> med'."""
+    out = summarize_global(result, is_res)
+    for k, v in summarize_by_group(result, is_res).items():
+        out[f"{k} med"] = v
     return out
 
 
