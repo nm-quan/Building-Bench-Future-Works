@@ -76,9 +76,28 @@ def _first_parquet_key(dir_key: str) -> str:
 # ---------------------------------------------------------------------------
 # Official transforms (downloaded once, cached locally)
 # ---------------------------------------------------------------------------
+def _validate_boxcox(load_transform) -> None:
+    """The official boxcox.pkl is a pickled sklearn PowerTransformer fit under
+    sklearn 1.5.x; unpickling under a different sklearn version emits an
+    InconsistentVersionWarning and COULD silently misbehave. Rather than
+    pinning sklearn (which would force a Colab downgrade + runtime restart),
+    validate numerically: the fitted lambda must exist and be finite, and a
+    kWh probe spanning the realistic load range must round-trip
+    transform -> undo_transform back to itself."""
+    pt = load_transform.boxcox
+    lambdas = getattr(pt, "lambdas_", None)
+    assert lambdas is not None and np.isfinite(lambdas).all(), \
+        f"official boxcox.pkl loaded without valid lambdas_ ({lambdas}) -- sklearn unpickle failure"
+    probe = np.array([0.01, 0.5, 1.0, 5.0, 25.0, 100.0, 1000.0], dtype=np.float64)
+    rt = load_transform.undo_transform(load_transform.transform(probe))
+    assert np.allclose(rt, probe, rtol=1e-4, atol=1e-6), \
+        f"Box-Cox round-trip failed: {probe} -> {rt} -- sklearn version incompatibility"
+
+
 def download_official_transforms(paths: config.Paths) -> dict:
     """Downloads the paper's own already-fit Box-Cox (load) and StandardScaler
-    (per weather channel) transform parameters. Returns
+    (per weather channel) transform parameters, and validates the Box-Cox
+    pickle numerically (see _validate_boxcox). Returns
     {'load': BoxCoxTransform, 'weather': {col: StandardScalerTransform}}.
     """
     tdir = Path(paths.TRANSFORMS_DIR)
@@ -88,6 +107,7 @@ def download_official_transforms(paths: config.Paths) -> dict:
     _s3_cp(f"{S3_PREFIX}/metadata/transforms/boxcox.pkl", str(boxcox_local))
     load_transform = BoxCoxTransform()
     load_transform.load(boxcox_local)
+    _validate_boxcox(load_transform)
 
     weather_transforms = {}
     for col in config.WEATHER_COLS:
