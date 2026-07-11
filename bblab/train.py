@@ -427,6 +427,16 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
     done = set()
     if os.path.getsize(paths.SIM_CSV) > 50:
         d = pd.read_csv(paths.SIM_CSV)
+        # migration guard: rows written before the >=7M transformer floor
+        # carry the old (smaller) architecture's results -- drop them so those
+        # models re-run at the current size instead of being skipped forever
+        stale = (d["model"].isin(models.TRANSFORMER_FAMILY)
+                 & (d["params"] > 0) & (d["params"] < models.MIN_TRANSFORMER_PARAMS))
+        if stale.any():
+            if log:
+                print(f"dropping {int(stale.sum())} stale rows (pre-7M-floor transformer sizes) -- will re-run")
+            d = d[~stale]
+            d.to_csv(paths.SIM_CSV, index=False)
         done = {(r.model, r.condition) for _, r in d.iterrows()}
 
     gpu_name = torch.cuda.get_device_name(0) if dev == "cuda" else "cpu"
@@ -473,8 +483,18 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
                 params = models.count_params(base)
                 ckpt = f"{paths.WEIGHTS_DIR}/{name}_{cond}.pt"
                 if params > 0 and os.path.exists(ckpt):
-                    base.load_state_dict(torch.load(ckpt, map_location=dev))
-                    val, reused = float("nan"), True
+                    # A checkpoint saved under an older hyperparameter config
+                    # can't be loaded into a resized architecture -- detect the
+                    # shape mismatch and retrain instead of crashing (the new
+                    # weights then overwrite the stale checkpoint).
+                    try:
+                        base.load_state_dict(torch.load(ckpt, map_location=dev))
+                        reused = True
+                    except RuntimeError:
+                        if log:
+                            print(f"  {name}/{cond}: checkpoint is from an older architecture size -- retraining", flush=True)
+                if reused:
+                    val = float("nan")
                     if log:
                         print(f"reuse checkpoint {name}/{cond} (no retraining)", flush=True)
                 elif params == 0:
