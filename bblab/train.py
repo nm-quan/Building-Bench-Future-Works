@@ -408,16 +408,18 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
     import csv
     import pandas as pd
 
-    # v2 schema: paper-global headline metrics + per-building medians (＿med)
-    # + compute-budget accounting (epochs, train/eval wall time, GPU, peak
-    # memory). Written to paths.SIM_CSV (sim_results_v2.csv): a NEW file, so
-    # pairs evaluated under the old metric definitions re-evaluate -- but
+    # v3 schema: headline metrics use the paper's PUBLISHED aggregation
+    # (median across per-building values -- their aggregate.return_aggregate_
+    # median, used by zero_shot.py for every benchmark table); *_pooled are
+    # the pooled/global view (their pretrain.py validation monitor,
+    # tail-sensitive) as a secondary column; plus compute-budget accounting.
+    # A NEW file, so pairs evaluated under older schemas re-evaluate -- but
     # training is NEVER repeated: any existing checkpoint on Drive
     # ({model}_{cond}.pt / .pkl) is loaded instead of retraining, so
     # already-trained models only pay the ~15s re-scoring cost.
     fields = ["model", "condition", "weather",
               "com_nrmse", "res_nrmse", "com_nmae", "res_nmae", "com_crps", "res_crps",
-              "com_nrmse_med", "res_nrmse_med",
+              "com_nrmse_pooled", "res_nrmse_pooled",
               "val_nll", "params", "epochs", "train_sec", "eval_sec", "sec",
               "gpu", "peak_mem_gb", "reused_ckpt"]
     if reset and os.path.exists(paths.SIM_CSV):
@@ -518,8 +520,8 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
                    "res_nmae": round(res.get("Res NMAE", float("nan")), 3),
                    "com_crps": round(res.get("Com CRPS", float("nan")), 3),
                    "res_crps": round(res.get("Res CRPS", float("nan")), 3),
-                   "com_nrmse_med": round(res.get("Com NRMSE med", float("nan")), 3),
-                   "res_nrmse_med": round(res.get("Res NRMSE med", float("nan")), 3),
+                   "com_nrmse_pooled": round(res.get("Com NRMSE pooled", float("nan")), 3),
+                   "res_nrmse_pooled": round(res.get("Res NRMSE pooled", float("nan")), 3),
                    "val_nll": (round(val, 4) if val == val else ""), "params": params,
                    "epochs": tstats["epochs"], "train_sec": tstats["train_sec"],
                    "eval_sec": round(time.time() - t_eval, 1), "sec": round(time.time() - t0),
@@ -527,7 +529,7 @@ def run_training_sweep(model_names: list, conditions: dict, ds_train: dict, ds_s
             csv.DictWriter(open(paths.SIM_CSV, "a", newline=""), fields).writerow(row)
             if log:
                 print(f"  done {row['sec']}s  Com NRMSE={row['com_nrmse']}  Res NRMSE={row['res_nrmse']}"
-                      f"  (med {row['com_nrmse_med']}/{row['res_nrmse_med']})\n")
+                      f"  (pooled {row['com_nrmse_pooled']}/{row['res_nrmse_pooled']})\n")
         except Exception as e:
             print(f"  FAILED {name}/{cond}: {type(e).__name__}: {e}")
             import traceback

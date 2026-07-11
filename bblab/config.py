@@ -106,12 +106,16 @@ class Paths:
 
         self.RESULTS_DIR = f"{self.BENCH}/results"
         self.WEIGHTS_DIR = f"{self.RESULTS_DIR}/weights"
-        # v2: paper-global metrics + paper CRPS approximation + compute
-        # accounting. A new filename on purpose -- rows in the old
-        # sim_results.csv were computed under different metric definitions, and
-        # pointing at a fresh file makes the sweep re-EVALUATE everything while
-        # still reusing every trained checkpoint in WEIGHTS_DIR (no retraining).
-        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v2.csv"
+        # v3: headline metrics are the paper's PUBLISHED aggregation (median
+        # across per-building values -- confirmed against evaluation/
+        # aggregate.py + zero_shot.py), CRPS in kWh via the paper's inverse-
+        # Box-Cox approximation, pooled metrics as secondary columns, plus
+        # compute accounting. A new filename on purpose: v2 briefly used the
+        # pooled aggregation as headline (that formula is pretrain.py's
+        # validation monitor, not the published tables). Fresh file =
+        # re-EVALUATE everything; trained checkpoints in WEIGHTS_DIR are
+        # always reused (no retraining).
+        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v3.csv"
         self.REAL_CSV = f"{self.RESULTS_DIR}/real_results.csv"
         self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results.csv"
 
