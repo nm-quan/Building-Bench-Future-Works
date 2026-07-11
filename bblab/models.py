@@ -763,6 +763,340 @@ class TransformerGaussian(nn.Module):
 
 
 # ===========================================================================
+# 11) TFT-Lite -- Temporal Fusion Transformer's core mechanism (Lim et al.
+#     2019/2021, "Temporal Fusion Transformers for Interpretable Multi-
+#     horizon Time Series Forecasting"): every exogenous variable is embedded
+#     INDEPENDENTLY, then a learned Variable Selection Network produces a
+#     PER-TIMESTEP soft weighting over which variables matter -- absent from
+#     every other model in this registry, which either concatenate all
+#     covariates uniformly or use fixed (unweighted) per-variable tokens.
+#     Followed by an LSTM local-processing layer and self-attention over the
+#     full sequence, matching the official encoder-LSTM + interpretable-
+#     attention design. Separate encoder/decoder variable sets since the
+#     future window has no load value to select over.
+# ===========================================================================
+class GatedResidualNetwork(nn.Module):
+    """GRN(a, c) = LayerNorm(skip(a) + GLU(W1 ELU(W2 a + W3 c))). Matches the
+    TFT paper's GRN exactly; context `c` is optional."""
+    def __init__(self, d_in, d_hidden, d_out, dropout=0.1, has_context=False):
+        super().__init__()
+        self.w2 = nn.Linear(d_in, d_hidden)
+        self.wc = nn.Linear(d_hidden, d_hidden, bias=False) if has_context else None
+        self.w1 = nn.Linear(d_hidden, d_hidden)
+        self.dropout = nn.Dropout(dropout)
+        self.glu = nn.Linear(d_hidden, 2 * d_out)
+        self.skip = nn.Linear(d_in, d_out) if d_in != d_out else nn.Identity()
+        self.norm = nn.LayerNorm(d_out)
+
+    def forward(self, a, c=None):
+        eta2 = self.w2(a)
+        if self.wc is not None and c is not None:
+            eta2 = eta2 + self.wc(c)
+        eta2 = F.elu(eta2)
+        eta1 = self.dropout(self.w1(eta2))
+        gate, val = self.glu(eta1).chunk(2, -1)
+        gated = torch.sigmoid(gate) * val
+        return self.norm(self.skip(a) + gated)
+
+
+class VariableSelectionNetwork(nn.Module):
+    """n_vars independent scalar inputs, each embedded to d_model, -> a
+    per-timestep softmax over the n_vars -> weighted sum -> (B,T,d_model)."""
+    def __init__(self, n_vars, d_model, dropout=0.1):
+        super().__init__()
+        self.var_embed = nn.ModuleList([nn.Linear(1, d_model) for _ in range(n_vars)])
+        self.var_grn = nn.ModuleList([GatedResidualNetwork(d_model, d_model, d_model, dropout) for _ in range(n_vars)])
+        self.weight_grn = GatedResidualNetwork(n_vars * d_model, d_model, n_vars, dropout)
+
+    def forward(self, vars_list):  # list of n_vars tensors, each (B,T)
+        embeds = [emb(v.unsqueeze(-1)) for emb, v in zip(self.var_embed, vars_list)]   # each (B,T,d_model)
+        flat = torch.cat(embeds, -1)
+        weights = F.softmax(self.weight_grn(flat), -1)                                  # (B,T,n_vars)
+        processed = torch.stack([grn(e) for grn, e in zip(self.var_grn, embeds)], -1)   # (B,T,d_model,n_vars)
+        return (processed * weights.unsqueeze(2)).sum(-1)                               # (B,T,d_model)
+
+
+class TFTLite(nn.Module):
+    def __init__(self, L=168, H=24, n_time=3, n_weather=7, use_weather=True,
+                 d_model=64, n_heads=4, dropout=0.1, **kw):
+        super().__init__()
+        self.L, self.H = L, H
+        self.n_time, self.n_weather, self.use_weather = n_time, n_weather, use_weather
+        self.revin = RevIN()
+        n_enc_vars = 1 + n_time + (n_weather if use_weather else 0) + 1   # load + calendar + weather? + btype
+        n_dec_vars = n_time + (n_weather if use_weather else 0) + 1        # no load in the future
+        self.enc_vsn = VariableSelectionNetwork(n_enc_vars, d_model, dropout)
+        self.dec_vsn = VariableSelectionNetwork(n_dec_vars, d_model, dropout)
+        self.encoder_lstm = nn.LSTM(d_model, d_model, batch_first=True)
+        self.decoder_lstm = nn.LSTM(d_model, d_model, batch_first=True)
+        self.gate_enrich = GatedResidualNetwork(d_model, d_model, d_model, dropout)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn_norm = nn.LayerNorm(d_model)
+        self.pos_ff = GatedResidualNetwork(d_model, d_model, d_model, dropout)
+        self.head = nn.Linear(d_model, 2)
+
+    def forward(self, yh, exo):
+        B = yh.size(0)
+        yn, mu, sd = self.revin(yh)
+        cal, weather, btype = split_exo(exo, self.n_time, self.n_weather, self.use_weather)
+
+        enc_vars = [yn] + [cal[:, :self.L, i] for i in range(self.n_time)]
+        if self.use_weather:
+            enc_vars += [weather[:, :self.L, i] for i in range(self.n_weather)]
+        enc_vars.append(btype[:, :self.L, 0])
+        enc_repr = self.enc_vsn(enc_vars)                                  # (B,L,d_model)
+
+        dec_vars = [cal[:, self.L:, i] for i in range(self.n_time)]
+        if self.use_weather:
+            dec_vars += [weather[:, self.L:, i] for i in range(self.n_weather)]
+        dec_vars.append(btype[:, self.L:, 0])
+        dec_repr = self.dec_vsn(dec_vars)                                  # (B,H,d_model)
+
+        enc_out, (h, c) = self.encoder_lstm(enc_repr)
+        dec_out, _ = self.decoder_lstm(dec_repr, (h, c))
+        seq = self.gate_enrich(torch.cat([enc_out, dec_out], 1))           # (B,L+H,d_model)
+
+        causal_mask = torch.triu(torch.full((self.L + self.H, self.L + self.H), float("-inf"), device=yh.device), 1)
+        attn_out, _ = self.attn(seq, seq, seq, attn_mask=causal_mask)
+        seq = self.attn_norm(seq + attn_out)
+        seq = self.pos_ff(seq)
+
+        out = self.head(seq[:, -self.H:])                                  # (B,H,2)
+        return out[..., 0], out[..., 1], mu, sd
+
+
+# ===========================================================================
+# 12) xLSTM-Patch -- sLSTM cell (Beck et al. 2024, "xLSTM: Extended Long
+#     Short-Term Memory": exponential input/forget gates + a log-space
+#     stabilizer to prevent overflow) applied over DAILY PATCHES (7 patches
+#     of 24h each) rather than raw hourly steps, so the sequential
+#     recurrence stays cheap on Colab. Directly motivated by a 2026 benchmark
+#     (arXiv:2605.09722, "Benchmarking Transformer and xLSTM for Time-Series
+#     Forecasting of Heat Consumption") showing xLSTM beats Transformer/TFT
+#     variants specifically on building heat-consumption forecasting.
+# ===========================================================================
+class SLSTMCell(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.Wz = nn.Linear(input_size, hidden_size)
+        self.Rz = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.Wi = nn.Linear(input_size, hidden_size)
+        self.Ri = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.Wf = nn.Linear(input_size, hidden_size)
+        self.Rf = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.Wo = nn.Linear(input_size, hidden_size)
+        self.Ro = nn.Linear(hidden_size, hidden_size, bias=False)
+
+    def init_state(self, B, device, dtype):
+        z = torch.zeros(B, self.hidden_size, device=device, dtype=dtype)
+        return (z, z, z, z)  # h, c, n, m
+
+    def forward(self, x, state):
+        h, c, n, m = state
+        z = torch.tanh(self.Wz(x) + self.Rz(h))
+        i_tilde = self.Wi(x) + self.Ri(h)          # log-input-gate pre-activation
+        f_tilde = self.Wf(x) + self.Rf(h)          # log-forget-gate pre-activation
+        o = torch.sigmoid(self.Wo(x) + self.Ro(h))
+        m_new = torch.maximum(f_tilde + m, i_tilde)  # stabilizer (log-space running max)
+        i = torch.exp(i_tilde - m_new)
+        f = torch.exp(f_tilde + m - m_new)
+        c_new = f * c + i * z
+        n_new = f * n + i
+        h_new = o * (c_new / n_new.clamp_min(1e-6))
+        return h_new, (h_new, c_new, n_new, m_new)
+
+
+class XLSTMPatch(nn.Module):
+    def __init__(self, L=168, H=24, n_time=3, n_weather=7, use_weather=True,
+                 d_model=96, patch_len=24, layers=2, dropout=0.1, dh=128, **kw):
+        super().__init__()
+        self.L, self.H, self.patch_len = L, H, patch_len
+        self.n_patches = L // patch_len
+        self.revin = RevIN()
+        self.patch_embed = nn.Linear(patch_len, d_model)
+        self.cells = nn.ModuleList([SLSTMCell(d_model, d_model) for _ in range(layers)])
+        self.dropout = nn.Dropout(dropout)
+        c_exo = c_exo_width(n_time, n_weather, use_weather)
+        self.fut = nn.Sequential(nn.Linear(H * c_exo, dh), nn.GELU(), nn.Linear(dh, d_model))
+        self.head = nn.Sequential(nn.LayerNorm(2 * d_model), nn.Linear(2 * d_model, 2 * H))
+
+    def forward(self, yh, exo):
+        B, dev, dtype = yh.size(0), yh.device, yh.dtype
+        yn, mu, sd = self.revin(yh)
+        x = self.patch_embed(yn.view(B, self.n_patches, self.patch_len))   # (B,7,d_model)
+
+        for cell in self.cells:
+            state = cell.init_state(B, dev, dtype)
+            hs = []
+            for t in range(self.n_patches):
+                h, state = cell(x[:, t], state)
+                hs.append(h)
+            x = self.dropout(torch.stack(hs, 1))
+        summary = x[:, -1]                                                  # (B,d_model)
+
+        fut = self.fut(exo[:, self.L:].reshape(B, -1))
+        out = self.head(torch.cat([summary, fut], -1)).view(B, self.H, 2)
+        return out[..., 0], out[..., 1], mu, sd
+
+
+# ===========================================================================
+# 13) SpectraMix -- TSMixer-style time+feature MLP-mixing (Chen et al. 2023,
+#     "TSMixer: An All-MLP Architecture for Time Series Forecasting") over
+#     daily patches, fused with a FITS-style (Xu et al. 2024, "FITS: Modeling
+#     Time Series with 10k Parameters") frequency-domain linear extrapolation
+#     branch, plus an explicit degree-day weather-response correction. No
+#     attention, no recurrence -- cheap, and diversifies the registry with a
+#     pure-MLP + frequency-domain mechanism.
+# ===========================================================================
+class _MixerBlock(nn.Module):
+    def __init__(self, n_patches, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        self.time_norm = nn.LayerNorm(d_model)
+        self.time_mlp = nn.Sequential(nn.Linear(n_patches, d_ff), nn.GELU(), nn.Dropout(dropout), nn.Linear(d_ff, n_patches))
+        self.feat_norm = nn.LayerNorm(d_model)
+        self.feat_mlp = nn.Sequential(nn.Linear(d_model, d_ff), nn.GELU(), nn.Dropout(dropout), nn.Linear(d_ff, d_model))
+
+    def forward(self, x):  # x: (B, n_patches, d_model)
+        t = self.time_norm(x).transpose(1, 2)             # (B,d_model,n_patches)
+        x = x + self.time_mlp(t).transpose(1, 2)
+        x = x + self.feat_mlp(self.feat_norm(x))
+        return x
+
+
+class FrequencyExtrapolation(nn.Module):
+    """FITS's core trick: a learned complex-linear layer mapping the rfft of
+    a length-L series to the rfft of a length-(L+H) series; irfft gives a
+    direct time-domain extrapolation, whose last H values are the forecast."""
+    def __init__(self, L, H):
+        super().__init__()
+        self.L, self.H = L, H
+        n_in = L // 2 + 1
+        n_out = (L + H) // 2 + 1
+        self.weight = nn.Parameter(torch.randn(n_out, n_in, dtype=torch.cfloat) * 0.02)
+
+    def forward(self, x):  # x: (B, L) real
+        xf = torch.fft.rfft(x.float(), n=self.L, dim=-1)    # (B,n_in) complex
+        yf = torch.einsum("oi,bi->bo", self.weight, xf)      # (B,n_out) complex
+        y = torch.fft.irfft(yf, n=self.L + self.H, dim=-1)   # (B,L+H) real
+        return y[:, -self.H:]
+
+
+class SpectraMix(nn.Module):
+    def __init__(self, L=168, H=24, n_time=3, n_weather=7, use_weather=True,
+                 d_model=64, patch_len=24, layers=2, d_ff=128, dropout=0.1, dh=64, **kw):
+        super().__init__()
+        self.L, self.H, self.patch_len = L, H, patch_len
+        self.n_patches = L // patch_len
+        self.n_time, self.n_weather, self.use_weather = n_time, n_weather, use_weather
+        self.revin = RevIN()
+        self.patch_embed = nn.Linear(patch_len, d_model)
+        self.blocks = nn.ModuleList([_MixerBlock(self.n_patches, d_model, d_ff, dropout) for _ in range(layers)])
+        self.mix_head = nn.Linear(self.n_patches * d_model, H)
+        self.scale_head = nn.Sequential(nn.LayerNorm(self.n_patches * d_model), nn.Linear(self.n_patches * d_model, H))
+        self.freq = FrequencyExtrapolation(L, H)
+        self.freq_gate = nn.Parameter(torch.tensor(0.0))    # sigmoid-gated blend weight, starts at 0.5
+        if use_weather:
+            self.Tbal_heat = nn.Parameter(torch.tensor(-0.3))
+            self.Tbal_cool = nn.Parameter(torch.tensor(0.3))
+            self.dd_mlp = nn.Sequential(nn.Linear(2, dh), nn.GELU(), nn.Linear(dh, 1))
+
+    def forward(self, yh, exo):
+        B = yh.size(0)
+        yn, mu, sd = self.revin(yh)
+        patches = self.patch_embed(yn.view(B, self.n_patches, self.patch_len))
+        z = patches
+        for blk in self.blocks:
+            z = blk(z)
+        flat = z.reshape(B, -1)
+        mu_mix = self.mix_head(flat)
+        mu_freq = self.freq(yn)
+        mu_n = mu_mix + torch.sigmoid(self.freq_gate) * mu_freq
+        raw_scale = self.scale_head(flat)
+
+        if self.use_weather:
+            _, weather, _ = split_exo(exo, self.n_time, self.n_weather, True)
+            temp_fut = weather[:, self.L:, 0]      # channel 0 = confirmed dry-bulb temperature
+            heat = F.relu(self.Tbal_heat - temp_fut)
+            cool = F.relu(temp_fut - self.Tbal_cool)
+            mu_n = mu_n + self.dd_mlp(torch.stack([heat, cool], -1)).squeeze(-1)
+        return mu_n, raw_scale, mu, sd
+
+
+# ===========================================================================
+# 14) MambaPatch -- selective state-space scan (Gu & Dao 2023, "Mamba:
+#     Linear-Time Sequence Modeling with Selective State Spaces", the S6
+#     mechanism) over daily patches, pure PyTorch (no custom CUDA kernel --
+#     the official mamba-ssm package's compiled kernel is often unreliable to
+#     install in Colab). The previous draft of this study explicitly
+#     excluded Mamba/selective-SSM as "too many nuances/bugs for this
+#     context" -- this fills that gap with a small, sequential (7-step,
+#     patch-level) scan, cheap enough not to need a fused kernel.
+# ===========================================================================
+class SelectiveSSM(nn.Module):
+    def __init__(self, d_model, d_state=8):
+        super().__init__()
+        self.d_model, self.d_state = d_model, d_state
+        self.A_log = nn.Parameter(torch.log(torch.rand(d_model, d_state) * 0.5 + 0.5))  # A=-exp(A_log) in [-1,-0.5]
+        self.D = nn.Parameter(torch.ones(d_model))
+        self.delta_proj = nn.Linear(d_model, d_model)
+        self.B_proj = nn.Linear(d_model, d_state)
+        self.C_proj = nn.Linear(d_model, d_state)
+
+    def forward(self, x):  # x: (B, T, d_model)
+        Bsz, T, D = x.shape
+        A = -torch.exp(self.A_log)                                              # (D,d_state), strictly negative
+        delta = F.softplus(self.delta_proj(x))                                   # (B,T,D)
+        Bt = self.B_proj(x)                                                       # (B,T,d_state)
+        Ct = self.C_proj(x)                                                       # (B,T,d_state)
+
+        h = x.new_zeros(Bsz, D, self.d_state)
+        ys = []
+        for t in range(T):
+            dA = torch.exp(delta[:, t].unsqueeze(-1) * A.unsqueeze(0))                    # (B,D,d_state)
+            dBx = (delta[:, t] * x[:, t]).unsqueeze(-1) * Bt[:, t].unsqueeze(1)             # (B,D,d_state)
+            h = dA * h + dBx
+            ys.append((h * Ct[:, t].unsqueeze(1)).sum(-1) + self.D * x[:, t])               # (B,D)
+        return torch.stack(ys, 1)                                                            # (B,T,D)
+
+
+class MambaPatch(nn.Module):
+    def __init__(self, L=168, H=24, n_time=3, n_weather=7, use_weather=True,
+                 d_model=96, d_state=8, patch_len=24, layers=2, dropout=0.1, dh=128, **kw):
+        super().__init__()
+        self.L, self.H, self.patch_len = L, H, patch_len
+        self.n_patches = L // patch_len
+        self.revin = RevIN()
+        self.patch_embed = nn.Linear(patch_len, d_model)
+        self.in_proj = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(layers)])
+        self.gate_proj = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(layers)])
+        self.ssms = nn.ModuleList([SelectiveSSM(d_model, d_state) for _ in range(layers)])
+        self.out_proj = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(layers)])
+        self.norms = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(layers)])
+        self.dropout = nn.Dropout(dropout)
+        c_exo = c_exo_width(n_time, n_weather, use_weather)
+        self.fut = nn.Sequential(nn.Linear(H * c_exo, dh), nn.GELU(), nn.Linear(dh, d_model))
+        self.head = nn.Sequential(nn.LayerNorm(2 * d_model), nn.Linear(2 * d_model, 2 * H))
+
+    def forward(self, yh, exo):
+        B = yh.size(0)
+        yn, mu, sd = self.revin(yh)
+        z = self.patch_embed(yn.view(B, self.n_patches, self.patch_len))        # (B,7,d_model)
+
+        for inp, gate, ssm, outp, norm in zip(self.in_proj, self.gate_proj, self.ssms, self.out_proj, self.norms):
+            residual = z
+            x = F.silu(inp(norm(z)))
+            y = ssm(x)
+            y = y * F.silu(gate(z))
+            z = residual + self.dropout(outp(y))
+        summary = z.mean(1)                                                       # (B,d_model)
+
+        fut = self.fut(exo[:, self.L:].reshape(B, -1))
+        out = self.head(torch.cat([summary, fut], -1)).view(B, self.H, 2)
+        return out[..., 0], out[..., 1], mu, sd
+
+
+# ===========================================================================
 # Registry
 # ===========================================================================
 REG = {
@@ -781,6 +1115,10 @@ REG = {
     "transformer_s": TransformerGaussian,
     "transformer_m": TransformerGaussian,
     "transformer_l": TransformerGaussian,
+    "tftlite": TFTLite,
+    "xlstm": XLSTMPatch,
+    "spectramix": SpectraMix,
+    "mamba": MambaPatch,
 }
 
 MODEL_KW = {
@@ -803,6 +1141,11 @@ MODEL_KW = {
                           dim_feedforward=1024, dropout=0.0),
     "transformer_l": dict(d_model=768, nhead=12, num_encoder_layers=12, num_decoder_layers=12,
                           dim_feedforward=2048, dropout=0.0),
+    # Novel research-grounded architectures (see study.ipynb intro for citations).
+    "tftlite": dict(d_model=64, n_heads=4, dropout=0.1),
+    "xlstm": dict(d_model=96, patch_len=24, layers=2, dropout=0.1, dh=128),
+    "spectramix": dict(d_model=64, patch_len=24, layers=2, d_ff=128, dropout=0.1, dh=64),
+    "mamba": dict(d_model=96, d_state=8, patch_len=24, layers=2, dropout=0.1, dh=128),
 }
 
 
