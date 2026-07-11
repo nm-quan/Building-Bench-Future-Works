@@ -459,12 +459,21 @@ def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: boo
                 print(f"  [warn] cannot list {ds}: {e}")
             continue
         csvs = [n for n in names if n.endswith(".csv") and "_clean=" in n]
+        n_dropped_empty = 0
         for name in csvs:
             local = Path(paths.RAW_CACHE_DIR) / "real" / ds / name
             _s3_cp(f"{S3_PREFIX}/{ds}/{name}", str(local))
             df = pd.read_csv(local)
             df["timestamp"] = pd.to_datetime(df["timestamp"])
-            load_col = [c for c in df.columns if c != "timestamp"][0]
+            # A handful of published building-year files have no data column at
+            # all (just "timestamp") -- e.g. a building-year with zero readings
+            # that year still got a file written. Skip rather than crash the
+            # whole real-building load over one malformed source file.
+            data_cols = [c for c in df.columns if c != "timestamp"]
+            if not data_cols:
+                n_dropped_empty += 1
+                continue
+            load_col = data_cols[0]
             series = pd.Series(df[load_col].values, index=df["timestamp"]).sort_index()
             series = series[np.isfinite(series.values)]
             site = name.split("_clean=")[0]
@@ -475,7 +484,8 @@ def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: boo
                 "series": series,
             })
         if verbose:
-            print(f"  [real] {ds}: {len(csvs)} building-year files")
+            dropped_note = f", dropped {n_dropped_empty} with no data column" if n_dropped_empty else ""
+            print(f"  [real] {ds}: {len(csvs) - n_dropped_empty} building-year files{dropped_note}")
     return out
 
 
