@@ -99,32 +99,40 @@ def resolve_bench_root(default="/content/drive/MyDrive/quick/bench"):
 class Paths:
     def __init__(self, bench_root=None):
         self.BENCH = bench_root or resolve_bench_root()
+        # raw_cache (S3 downloads: parquet, weather CSVs, index files) stays
+        # valid across versions -- the chronological-sort fix happens at READ
+        # time in data._fetch_puma_parquet, so nothing re-downloads.
         self.RAW_CACHE_DIR = f"{self.BENCH}/raw_cache"
-        self.TRAIN_DIR = f"{self.BENCH}/train_20k"
-        self.SIM_TEST_DIR = f"{self.BENCH}/sim_test"
+        # _v2 data caches: everything below was rebuilt after discovering that
+        # Buildings-900K parquet rows are NOT stored chronologically (official
+        # loader docstring; verified empirically -- raw row order is fully
+        # shuffled). The v1 caches under train_20k/sim_test were built without
+        # sorting by timestamp, i.e. every simulated series was temporally
+        # scrambled: persistence baselines read ~2x the paper's values and
+        # trained models could only learn "predict the mean." All caches,
+        # weights, and results derived from them are invalidated by these new
+        # names (old files left in place on Drive for forensics).
+        self.TRAIN_DIR = f"{self.BENCH}/train_20k_v2"
+        self.SIM_TEST_DIR = f"{self.BENCH}/sim_test_v2"
         self.TRANSFORMS_DIR = f"{self.BENCH}/transforms"
 
         self.RESULTS_DIR = f"{self.BENCH}/results"
-        self.WEIGHTS_DIR = f"{self.RESULTS_DIR}/weights"
-        # v3: headline metrics are the paper's PUBLISHED aggregation (median
-        # across per-building values -- confirmed against evaluation/
-        # aggregate.py + zero_shot.py), CRPS in kWh via the paper's inverse-
-        # Box-Cox approximation, pooled metrics as secondary columns, plus
-        # compute accounting. A new filename on purpose: v2 briefly used the
-        # pooled aggregation as headline (that formula is pretrain.py's
-        # validation monitor, not the published tables). Fresh file =
-        # re-EVALUATE everything; trained checkpoints in WEIGHTS_DIR are
-        # always reused (no retraining).
-        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v3.csv"
+        self.WEIGHTS_DIR = f"{self.RESULTS_DIR}/weights_v2"      # pre-fix checkpoints learned from scrambled series
+        # v4 results: chronologically-sorted data + headline metrics as the
+        # paper's PUBLISHED aggregation (median across per-building values,
+        # confirmed against evaluation/aggregate.py + zero_shot.py), CRPS in
+        # kWh via the paper's inverse-Box-Cox approximation, pooled metrics as
+        # secondary columns, compute accounting per row.
+        self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v4.csv"
         self.REAL_CSV = f"{self.RESULTS_DIR}/real_results.csv"
         self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results.csv"
 
-        self.PERBUILDING_SIM_DIR = f"{self.RESULTS_DIR}/perbuilding_sim"
+        self.PERBUILDING_SIM_DIR = f"{self.RESULTS_DIR}/perbuilding_sim_v2"
         self.PERBUILDING_REAL_DIR = f"{self.RESULTS_DIR}/perbuilding_real"
         self.PERBUILDING_REAL_WEATHER_TEMP_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_temp"
 
-        self.FIGURES_DIR = f"{self.RESULTS_DIR}/figures"        # EDA + analysis plots (Drive)
-        self.ANALYSIS_DIR = f"{self.RESULTS_DIR}/analysis"      # weather-value analysis CSVs (Drive)
+        self.FIGURES_DIR = f"{self.RESULTS_DIR}/figures"        # EDA + analysis plots (overwritten on re-run)
+        self.ANALYSIS_DIR = f"{self.RESULTS_DIR}/analysis_v2"   # weather-value analysis CSVs (Drive)
 
     def makedirs(self):
         for d in (self.RAW_CACHE_DIR, self.TRANSFORMS_DIR, self.RESULTS_DIR, self.WEIGHTS_DIR,
