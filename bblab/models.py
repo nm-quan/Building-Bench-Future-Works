@@ -1128,12 +1128,15 @@ MODEL_KW = {
     "lstm": dict(hidden=96, layers=2, dropout=0.1),
     "gru": dict(hidden=96, layers=2, dropout=0.1),
     "dlinear": dict(kernel=25, dh=128, dropout=0.1),
-    "patchtst": dict(patch_len=16, stride=8, d_model=128, e_layers=3, n_heads=16, d_ff=256, dropout=0.1),
-    "itransformer": dict(d_model=128, e_layers=3, n_heads=8, d_ff=256, dropout=0.1),
-    "timexer": dict(d_model=128, n_heads=8, layers=2, d_ff=256, patch_len=24, stride=12, dropout=0.1),
-    "informer": dict(d_model=128, n_heads=8, e_layers=3, d_ff=256, factor=5, dropout=0.1),
-    "autoformer": dict(d_model=96, n_heads=8, e_layers=2, d_ff=192, kernel=25, dropout=0.1),
-    "crossformer": dict(d_model=96, n_heads=8, layers=2, seg_len=24, n_routers=4, dropout=0.15),
+    # Transformer baselines are sized to a >=7M-parameter floor (both weather
+    # conditions) so capacity is never the reason a canonical architecture
+    # loses to persistence -- verified by instantiation, see MIN_TRANSFORMER_PARAMS.
+    "patchtst": dict(patch_len=16, stride=8, d_model=384, e_layers=6, n_heads=16, d_ff=768, dropout=0.1),
+    "itransformer": dict(d_model=512, e_layers=4, n_heads=8, d_ff=1024, dropout=0.1),
+    "timexer": dict(d_model=448, n_heads=8, layers=4, d_ff=896, patch_len=24, stride=12, dropout=0.1),
+    "informer": dict(d_model=384, n_heads=8, e_layers=5, d_ff=768, factor=5, dropout=0.1),
+    "autoformer": dict(d_model=384, n_heads=8, e_layers=4, d_ff=768, kernel=25, dropout=0.1),
+    "crossformer": dict(d_model=320, n_heads=8, layers=4, seg_len=24, n_routers=8, dropout=0.15),
     # Exact hyperparameters from buildings_bench/configs/TransformerWithGaussian-{S,M,L}.toml
     "transformer_s": dict(d_model=256, nhead=4, num_encoder_layers=2, num_decoder_layers=2,
                           dim_feedforward=512, dropout=0.0),
@@ -1142,11 +1145,21 @@ MODEL_KW = {
     "transformer_l": dict(d_model=768, nhead=12, num_encoder_layers=12, num_decoder_layers=12,
                           dim_feedforward=2048, dropout=0.0),
     # Novel research-grounded architectures (see study.ipynb intro for citations).
-    "tftlite": dict(d_model=64, n_heads=4, dropout=0.1),
+    # tftlite is attention-based, so it follows the same >=7M floor as the
+    # canonical transformers; the other three are deliberately compact
+    # (their parameter efficiency is part of what they test).
+    "tftlite": dict(d_model=320, n_heads=8, dropout=0.1),
     "xlstm": dict(d_model=96, patch_len=24, layers=2, dropout=0.1, dh=128),
     "spectramix": dict(d_model=64, patch_len=24, layers=2, d_ff=128, dropout=0.1, dh=64),
     "mamba": dict(d_model=96, d_state=8, patch_len=24, layers=2, dropout=0.1, dh=128),
 }
+
+# Capacity floor for the transformer-family baselines above -- asserted by the
+# smoke test in study.ipynb's training markdown and checkable via:
+#   all(count_params(build(n, use_weather=uw, **MODEL_KW[n])) >= MIN_TRANSFORMER_PARAMS ...)
+MIN_TRANSFORMER_PARAMS = 7_000_000
+TRANSFORMER_FAMILY = ["patchtst", "itransformer", "timexer", "informer",
+                      "autoformer", "crossformer", "tftlite"]
 
 
 def build(name: str, **kw):

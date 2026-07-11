@@ -71,7 +71,10 @@ def load_predict_fn(name: str, cond: str, use_w: bool, Ft: int, Fw: int,
         ckpt = f"{paths.WEIGHTS_DIR}/{name}_{cond}.pt"
         if not os.path.exists(ckpt):
             return None
-        base.load_state_dict(torch.load(ckpt, map_location=dev))
+        try:
+            base.load_state_dict(torch.load(ckpt, map_location=dev))
+        except RuntimeError:
+            return None  # stale checkpoint from an older architecture size -- skip until retrained
     amp = config.USE_AMP and (name not in config.RNN_MODELS)
     return neural_predict_fn(base, dev, amp=amp)
 
