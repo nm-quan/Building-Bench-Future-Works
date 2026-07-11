@@ -216,7 +216,17 @@ def _fetch_puma_parquet(root_prefix: str, release: str, region: str, puma: str, 
         dir_key = f"{_root_s3_path(root_prefix)}/{release}/timeseries_individual_buildings/{region}/upgrade=0/puma={puma}/"
         key = _first_parquet_key(dir_key)
         _s3_cp(key, str(local))
-    return pd.read_parquet(local)
+    df = pd.read_parquet(local)
+    # CRITICAL: Buildings-900K parquet rows are NOT stored chronologically --
+    # the official loader warns "The time series are not stored chronologically
+    # and must be sorted by timestamp after loading" (buildings900K.py) and
+    # sorts in its __getitem__. Verified empirically: raw row order is fully
+    # shuffled (0.01% of consecutive rows are consecutive hours); sorted order
+    # is a clean hourly series. Skipping this sort scrambles every series.
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    ts = pd.to_datetime(df["timestamp"])
+    assert ts.is_monotonic_increasing, f"parquet {puma} not chronological after sort"
+    return df
 
 
 def _fetch_county_weather(root_prefix: str, release: str, county: str, paths: config.Paths) -> pd.DataFrame:
