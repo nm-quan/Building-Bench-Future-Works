@@ -369,10 +369,17 @@ def build_dataset_cache(building_keys: pd.DataFrame, transforms: dict, paths: co
 
 def load_dataset_cache(cache_path: str) -> dict:
     d = np.load(cache_path, allow_pickle=False)
+    # is_amy was added after some caches were already written; backfill it from
+    # the stored per-building keys ("{release}__{region}__{puma}__{bid}") so an
+    # existing cache from an earlier run doesn't have to be rebuilt from S3.
+    if "is_amy" in d.files:
+        is_amy = d["is_amy"]
+    else:
+        is_amy = np.array(["amy2018" in str(k) for k in d["keys"]])
     return {
         "loads": d["loads"], "g_tf": d["g_tf"], "wuniq": d["wuniq"],
         "b2g": d["b2g"], "b2w": d["b2w"], "btype": d["btype"], "is_res": d["is_res"],
-        "is_amy": d["is_amy"],
+        "is_amy": is_amy,
         "T": int(d["T"]), "N": d["loads"].shape[0], "Ft": config.N_TIME, "Fw": config.N_WEATHER,
     }
 
@@ -444,10 +451,32 @@ def _building_type_for(dataset: str, site: str, meta: dict) -> float:
     return 1.0 if bt == "commercial" else -1.0
 
 
+# Published real-building CSVs are inconsistent about the timestamp column
+# name (confirmed by direct header inspection): most use 'timestamp', LCL uses
+# 'DateTime', and IDEAL leaves it unnamed as the leading index column. Detect
+# it robustly instead of assuming 'timestamp'.
+_TIME_COL_CANDIDATES = ("timestamp", "time", "datetime", "date_time", "date")
+
+
+def _real_timestamp_col(df: pd.DataFrame):
+    """Returns the name of the timestamp column in a real-building CSV, or None
+    if none is identifiable."""
+    for c in df.columns:
+        if str(c).strip().lower() in _TIME_COL_CANDIDATES:
+            return c
+    first = df.columns[0]  # IDEAL: header ",power" -> leading column is 'Unnamed: 0'
+    if str(first).startswith("Unnamed") or str(first).strip() == "":
+        return first
+    return None
+
+
 def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: bool = True) -> list:
     """Returns a list of dicts: {building_id, building_type (+1/-1), series
-    (pd.Series, kW, DatetimeIndex)} -- one entry per real building CSV found
-    under the requested datasets."""
+    (pd.Series, kW, DatetimeIndex)}. One entry per data column per CSV: most
+    datasets are one-building-per-file, but BDG-2 and Electricity pack many
+    buildings/meters as separate columns in a single file, so those expand to
+    one entry each (taking only the first column silently dropped almost all
+    of their buildings)."""
     datasets = datasets or REAL_DATASETS
     meta = load_benchmark_toml(paths)
     out = []
@@ -459,24 +488,55 @@ def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: boo
                 print(f"  [warn] cannot list {ds}: {e}")
             continue
         csvs = [n for n in names if n.endswith(".csv") and "_clean=" in n]
+        n_dropped_empty, n_added = 0, 0
         for name in csvs:
             local = Path(paths.RAW_CACHE_DIR) / "real" / ds / name
             _s3_cp(f"{S3_PREFIX}/{ds}/{name}", str(local))
             df = pd.read_csv(local)
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            load_col = [c for c in df.columns if c != "timestamp"][0]
-            series = pd.Series(df[load_col].values, index=df["timestamp"]).sort_index()
-            series = series[np.isfinite(series.values)]
+            ts_col = _real_timestamp_col(df)
+            data_cols = [c for c in df.columns if c != ts_col] if ts_col is not None else []
+            # Some published building-year files have no usable time column or
+            # no data column at all (a building-year with zero readings that
+            # still got a file written). Skip rather than crash the whole load.
+            if ts_col is None or not data_cols:
+                n_dropped_empty += 1
+                continue
+            idx = pd.to_datetime(df[ts_col], errors="coerce")
             site = name.split("_clean=")[0]
             bt = _building_type_for(ds, site, meta)
-            out.append({
-                "building_id": f"{ds}:{name.split('.csv')[0]}",
-                "building_type": bt,
-                "series": series,
-            })
+            stem = name.split(".csv")[0]
+            multi = len(data_cols) > 1
+            for col in data_cols:
+                vals = pd.to_numeric(df[col], errors="coerce").values
+                series = pd.Series(vals, index=idx).sort_index()
+                series = series[series.index.notna()]
+                series = series[np.isfinite(series.values)]
+                if series.empty:
+                    continue
+                bid = f"{ds}:{stem}:{col}" if multi else f"{ds}:{stem}"
+                out.append({"building_id": bid, "building_type": bt, "series": series})
+                n_added += 1
         if verbose:
-            print(f"  [real] {ds}: {len(csvs)} building-year files")
+            dropped_note = f", dropped {n_dropped_empty} empty/unparseable files" if n_dropped_empty else ""
+            print(f"  [real] {ds}: {n_added} buildings from {len(csvs)} files{dropped_note}")
     return out
+
+
+def _parse_era5_weather(local: Path):
+    """Reads an era5 weather CSV into a DataFrame indexed by timestamp with
+    ['temperature', 'humidity'] columns. Published era5 files are inconsistent
+    about the time column name (some use 'timestamp', some 'time' -- confirmed
+    by direct header inspection: Electricity/LCL use 'time', the rest use
+    'timestamp'), so normalize it here. Returns None if the file lacks any
+    usable time column or both weather channels."""
+    df = pd.read_csv(local)
+    ts_col = next((c for c in ("timestamp", "time") if c in df.columns), None)
+    if ts_col is None:
+        return None
+    keep = [c for c in ("temperature", "humidity") if c in df.columns]
+    if not keep:
+        return None
+    return df.set_index(pd.to_datetime(df[ts_col]))[keep].sort_index()
 
 
 def load_real_weather_temp_humidity(paths: config.Paths, datasets: list = None, verbose: bool = True) -> dict:
@@ -494,8 +554,11 @@ def load_real_weather_temp_humidity(paths: config.Paths, datasets: list = None, 
                     _s3_cp(f"{S3_PREFIX}/{ds}/weather_{site}_era5.csv", str(local))
                 except Exception:
                     continue
-                df = pd.read_csv(local)
-                out[ds][site] = df.set_index(pd.to_datetime(df["timestamp"]))[["temperature", "humidity"]].sort_index()
+                wdf = _parse_era5_weather(local)
+                if wdf is not None:
+                    out[ds][site] = wdf
+                elif verbose:
+                    print(f"  [warn] unusable weather columns in {ds}/weather_{site}_era5.csv")
         else:
             local = Path(paths.RAW_CACHE_DIR) / "real" / ds / "weather_era5.csv"
             try:
@@ -504,8 +567,11 @@ def load_real_weather_temp_humidity(paths: config.Paths, datasets: list = None, 
                 if verbose:
                     print(f"  [warn] no weather_era5.csv for {ds}")
                 continue
-            df = pd.read_csv(local)
-            out[ds] = {"default": df.set_index(pd.to_datetime(df["timestamp"]))[["temperature", "humidity"]].sort_index()}
+            wdf = _parse_era5_weather(local)
+            if wdf is not None:
+                out[ds] = {"default": wdf}
+            elif verbose:
+                print(f"  [warn] unusable weather columns in {ds}/weather_era5.csv")
     return out
 
 
