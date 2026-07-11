@@ -67,8 +67,12 @@ EPOCHS, PATIENCE = 200, 20
 STEPS, BS, LR = 300, 512, 4e-4
 SEED = 0
 USE_AMP, AMP_DTYPE = True, torch.bfloat16
-N_VAL_WINDOWS_PER_BUILDING = 4         # fixes the single-fixed-window validation bug
-VFRAC = 0.05
+N_VAL_WINDOWS_PER_BUILDING = 4         # resampled positions per val building per epoch
+# Matches the official val_timerange (2018-12-17 to 2018-12-31 = 14 days) from
+# scripts/data_generation/create_index_files.py -- validation is a temporal
+# holdout on the amy2018-release buildings already in the training cache, not
+# a separate building pool or a separate S3 fetch. See train.train().
+VAL_HOLDOUT_HOURS = 336
 
 XGB_WINDOWS, XGB_TREES, XGB_DEPTH = 80000, 500, 6
 LGB_WINDOWS, LGB_TREES, LGB_DEPTH = 80000, 500, 6
