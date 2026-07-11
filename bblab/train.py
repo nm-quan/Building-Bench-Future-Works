@@ -88,6 +88,17 @@ def gaussian_nll(mu, raw, target):
     return (0.5 * math.log(2 * math.pi) + torch.log(sigma) + 0.5 * ((target - mu) / sigma) ** 2).mean()
 
 
+def _forward(model, yh, exo, yf):
+    """A handful of models (the paper's own Transformer-S/M/L) are trained
+    with teacher forcing -- they need the ground-truth target during
+    training/validation, unlike every other model in this registry, which
+    only ever sees (yh, exo). Flagged via a `USES_TEACHER_FORCING` class
+    attribute so this is the only place that needs to know about it."""
+    if getattr(model, "USES_TEACHER_FORCING", False):
+        return model(yh, exo, yf=yf)
+    return model(yh, exo)
+
+
 # ---------------------------------------------------------------------------
 # Training -- fixes the single-fixed-validation-window bug: samples
 # config.N_VAL_WINDOWS_PER_BUILDING window positions per validation building,
@@ -134,7 +145,7 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
             s = torch.randint(0, smax, (bs,), device=dev)
             yh, yf, exo, _ = gather(ds, b, s, use_w, load_transform, dev)
             with ac():
-                mu_n, rs, mean, sd = model(yh, exo)
+                mu_n, rs, mean, sd = _forward(model, yh, exo, yf)
             tn = (yf - mean.float()) / sd.float()
             loss = gaussian_nll(mu_n.float(), rs.float(), tn)
             opt.zero_grad(set_to_none=True)
@@ -152,7 +163,7 @@ def train(model, ds: dict, dev: str, use_w: bool, load_transform, epochs=None, p
                     sv = s[v0:v0 + 128]
                     yh, yf, exo, _ = gather(ds, b, sv, use_w, load_transform, dev)
                     with ac():
-                        mu_n, rs, mean, sd = model(yh, exo)
+                        mu_n, rs, mean, sd = _forward(model, yh, exo, yf)
                     vs.append(gaussian_nll(mu_n.float(), rs.float(), (yf - mean.float()) / sd.float()).item())
         v = float(np.mean(vs))
         if v < best - 1e-4:

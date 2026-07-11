@@ -592,6 +592,177 @@ class Crossformer(nn.Module):
 
 
 # ===========================================================================
+# 10) Transformer-S/M/L (Gaussian) -- the paper's OWN model, not a canonical
+#     baseline from elsewhere. Faithful port of buildings_bench/models/
+#     transformers.py's LoadForecastingTransformer with continuous_loads=True,
+#     continuous_head='gaussian_nll' -- an encoder-decoder nn.Transformer,
+#     trained with teacher forcing, autoregressive greedy decoding at
+#     inference (matching the official generate_sample(greedy=True)).
+#     Hyperparameters below match buildings_bench/configs/TransformerWithGaussian-
+#     {S,M,L}.toml exactly. Deviation: the official model also embeds each
+#     building's lat/lon (via a PUMA-centroid lookup table this pipeline
+#     doesn't carry through) -- zero-embedded here, matching the official
+#     model's own `ignore_spatial=True` code path.
+#
+#     Unlike every other model in this registry, this one does NOT use RevIN:
+#     the official model operates directly in Box-Cox+standardized space with
+#     no additional per-window instance normalization, so `mean`/`std` here
+#     are the fixed identity (0, 1) -- `mu_n`/`raw_scale` ARE the Box-Cox-
+#     space prediction, matching the paper's own training/inference convention
+#     exactly rather than layering our other models' RevIN choice on top.
+# ===========================================================================
+class _PositionalEncoding(nn.Module):
+    """Fixed (non-learned) sinusoidal positional encoding, ported verbatim
+    from buildings_bench.models.transformers.PositionalEncoding."""
+    def __init__(self, d_model, dropout, maxlen=500):
+        super().__init__()
+        den = torch.exp(-torch.arange(0, d_model, 2) * math.log(10000) / d_model)
+        pos = torch.arange(0, maxlen).reshape(maxlen, 1)
+        pe = torch.zeros((maxlen, d_model))
+        pe[:, 0::2] = torch.sin(pos * den)
+        pe[:, 1::2] = torch.cos(pos * den)
+        self.dropout = nn.Dropout(dropout)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):  # x: (B, T, d_model)
+        return self.dropout(x + self.pe[:x.size(1)].unsqueeze(0))
+
+
+class _ZeroEmbedding(nn.Module):
+    """Matches official ZeroEmbedding -- outputs zeros shaped like the
+    reference tensor's (batch, seq) dims. Used here for lat/lon, which this
+    pipeline's data doesn't carry (see class docstring above)."""
+    def __init__(self, embedding_dim):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.zeros = nn.Parameter(torch.zeros(1, 1, embedding_dim), requires_grad=False)
+
+    def forward(self, ref):  # ref: (B, T, ...) -- only shape[0]/shape[1] used
+        return self.zeros.expand(ref.shape[0], ref.shape[1], -1)
+
+
+class SinusoidalPeriodicEmbedding(nn.Module):
+    """Matches official TimeSeriesSinusoidalPeriodicEmbedding: a scalar
+    already linearly scaled to [-1,1] -> [sin(pi*x), cos(pi*x)] -> linear."""
+    def __init__(self, embedding_dim):
+        super().__init__()
+        self.linear = nn.Linear(2, embedding_dim)
+
+    def forward(self, x):  # x: (B, T)
+        with torch.no_grad():
+            feats = torch.stack([torch.sin(math.pi * x), torch.cos(math.pi * x)], dim=-1)
+        return self.linear(feats)
+
+
+class TransformerGaussian(nn.Module):
+    USES_TEACHER_FORCING = True  # signals train.py's train() to pass yf during training
+
+    def __init__(self, L=168, H=24, n_time=3, n_weather=7, use_weather=True,
+                 d_model=256, nhead=4, num_encoder_layers=2, num_decoder_layers=2,
+                 dim_feedforward=512, dropout=0.0, **kw):
+        super().__init__()
+        self.L, self.H = L, H
+        self.n_time, self.n_weather, self.use_weather = n_time, n_weather, use_weather
+        s = max(1, d_model // 256)  # official side-embedding width scales with model size
+
+        # Official width is a fixed 64, but 768(L)+64=832 isn't divisible by
+        # nhead=12 (PyTorch's MultiheadAttention requires embed_dim % nhead
+        # == 0) -- the official d_model is always an exact multiple of nhead
+        # on its own (256/4, 512/8, 768/12), so round the weather width to
+        # the nearest multiple of nhead too, to keep d_total valid. Matches
+        # the official 64 exactly for S/M (16*4, 8*8); L gets 60 instead of
+        # 64 (5*12) -- a small, documented deviation forced by a combination
+        # (L + weather) that would crash the official code's own numbers too.
+        weather_dim = max(nhead, nhead * round(64 / nhead)) if use_weather else 0
+        self.weather_embed = nn.Linear(n_weather, weather_dim) if use_weather else None
+        d_total = d_model + weather_dim
+        self.d_total = d_total
+
+        self.transformer = nn.Transformer(
+            d_model=d_total, nhead=nhead, num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers, dim_feedforward=dim_feedforward,
+            dropout=dropout, activation="gelu", batch_first=True)
+        self.power_embed = nn.Linear(1, 64 * s)
+        self.logits = nn.Linear(d_total, 2)  # Gaussian: [mean, raw_scale]
+        self.pos_enc = _PositionalEncoding(d_total, dropout)
+        self.building_embed = nn.Embedding(2, 32 * s)
+        self.lat_embed = _ZeroEmbedding(32 * s)
+        self.lon_embed = _ZeroEmbedding(32 * s)
+        self.doy_embed = SinusoidalPeriodicEmbedding(32 * s)
+        self.dow_embed = SinusoidalPeriodicEmbedding(32 * s)
+        self.hod_embed = SinusoidalPeriodicEmbedding(32 * s)
+
+    def _embed_series(self, load_bc, cal, weather, btype_idx):
+        """load_bc: (B,T) Box-Cox-space load. cal: (B,T,n_time). weather:
+        (B,T,n_weather) or None. btype_idx: (B,T) long (0=res, 1=com)."""
+        parts = [
+            self.lat_embed(load_bc.unsqueeze(-1)), self.lon_embed(load_bc.unsqueeze(-1)),
+            self.building_embed(btype_idx),
+            self.doy_embed(cal[..., 0]), self.dow_embed(cal[..., 1]), self.hod_embed(cal[..., 2]),
+        ]
+        if self.use_weather:
+            parts.append(self.weather_embed(weather))
+        parts.append(self.power_embed(load_bc.unsqueeze(-1)))
+        return torch.cat(parts, -1)
+
+    def _split_exo(self, exo):
+        cal = exo[..., :self.n_time]
+        weather = exo[..., self.n_time:self.n_time + self.n_weather] if self.use_weather else None
+        btype_idx = ((exo[..., -1] > 0).long())  # +1(com)->1, -1(res)->0
+        return cal, weather, btype_idx
+
+    def forward(self, yh, exo, yf=None):
+        B, dev = yh.size(0), yh.device
+        cal, weather, btype_idx = self._split_exo(exo)
+        zero = torch.zeros(1, 1, device=dev, dtype=yh.dtype)
+
+        if yf is not None:
+            # ---- training: teacher forcing, one parallel decoder pass ----
+            full_load = torch.cat([yh, yf], 1)                       # (B, L+H) Box-Cox space
+            embed = self._embed_series(full_load, cal, weather, btype_idx)
+            src = self.pos_enc(embed[:, :self.L])
+            tgt = self.pos_enc(embed[:, self.L - 1:-1])               # context's last step + tgt[:-1] (shifted)
+            tgt_mask = self.transformer.generate_square_subsequent_mask(self.H).to(dev)
+            memory = self.transformer.encoder(src)
+            out = self.transformer.decoder(tgt, memory, tgt_mask=tgt_mask)
+            mu_raw = self.logits(out)                                  # (B, H, 2)
+            mu_n, raw_scale = mu_raw[..., 0], mu_raw[..., 1]
+        else:
+            # ---- inference: autoregressive greedy decoding, matching the
+            # official generate_sample(greedy=True) exactly ----
+            ctx_embed = self._embed_series(yh, cal[:, :self.L], weather[:, :self.L] if self.use_weather else None,
+                                            btype_idx[:, :self.L])
+            memory = self.transformer.encoder(self.pos_enc(ctx_embed))
+            # Raw (not-yet-positionally-encoded) decoder embeddings, grown one
+            # step at a time. Positional encoding is re-applied to the WHOLE
+            # growing sequence every iteration (matching the official
+            # generate_sample loop exactly -- it re-embeds `decoder_input` in
+            # full each step, not just the newest token, since this model's
+            # PositionalEncoding always numbers positions 0..len-1 of whatever
+            # it's given).
+            raw_decoder_embeds = [ctx_embed[:, -1:]]  # seed: context's last raw embedded step
+            preds, raws = [], []
+            for k in range(1, self.H + 1):
+                decoder_input = self.pos_enc(torch.cat(raw_decoder_embeds, 1))
+                tgt_mask = self.transformer.generate_square_subsequent_mask(k).to(dev)
+                dec_out = self.transformer.decoder(decoder_input, memory, tgt_mask=tgt_mask)
+                mu_raw = self.logits(dec_out[:, -1:])                  # (B, 1, 2)
+                preds.append(mu_raw[..., 0])
+                raws.append(mu_raw[..., 1])
+                if k < self.H:
+                    step_cal = cal[:, self.L + k - 1: self.L + k]
+                    step_w = weather[:, self.L + k - 1: self.L + k] if self.use_weather else None
+                    step_bt = btype_idx[:, self.L + k - 1: self.L + k]
+                    raw_decoder_embeds.append(self._embed_series(preds[-1], step_cal, step_w, step_bt))
+            mu_n = torch.cat(preds, 1)
+            raw_scale = torch.cat(raws, 1)
+
+        mean = zero.expand(B, 1)   # identity: no RevIN, see class docstring
+        std = torch.ones_like(mean)
+        return mu_n, raw_scale, mean, std
+
+
+# ===========================================================================
 # Registry
 # ===========================================================================
 REG = {
@@ -607,6 +778,9 @@ REG = {
     "informer": Informer,
     "autoformer": Autoformer,
     "crossformer": Crossformer,
+    "transformer_s": TransformerGaussian,
+    "transformer_m": TransformerGaussian,
+    "transformer_l": TransformerGaussian,
 }
 
 MODEL_KW = {
@@ -622,6 +796,13 @@ MODEL_KW = {
     "informer": dict(d_model=128, n_heads=8, e_layers=3, d_ff=256, factor=5, dropout=0.1),
     "autoformer": dict(d_model=96, n_heads=8, e_layers=2, d_ff=192, kernel=25, dropout=0.1),
     "crossformer": dict(d_model=96, n_heads=8, layers=2, seg_len=24, n_routers=4, dropout=0.15),
+    # Exact hyperparameters from buildings_bench/configs/TransformerWithGaussian-{S,M,L}.toml
+    "transformer_s": dict(d_model=256, nhead=4, num_encoder_layers=2, num_decoder_layers=2,
+                          dim_feedforward=512, dropout=0.0),
+    "transformer_m": dict(d_model=512, nhead=8, num_encoder_layers=3, num_decoder_layers=3,
+                          dim_feedforward=1024, dropout=0.0),
+    "transformer_l": dict(d_model=768, nhead=12, num_encoder_layers=12, num_decoder_layers=12,
+                          dim_feedforward=2048, dropout=0.0),
 }
 
 

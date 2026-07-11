@@ -38,8 +38,16 @@ TRAINED_NEURAL_MODELS = [
     "lstm", "gru", "patchtst", "itransformer", "timexer",
     "dlinear", "informer", "autoformer", "crossformer",
 ]
+# The paper's own pretrained model family (buildings_bench/models/transformers.py,
+# continuous_loads=True, continuous_head='gaussian_nll') -- not a canonical
+# baseline from elsewhere, the actual architecture BuildingsBench itself uses.
+# transformer_l matches their largest config (12+12 layers, d_model=768) and is
+# meaningfully more compute-heavy per epoch than everything else in this
+# registry; resumable checkpointing (see train.run_training_sweep) means it's
+# fine to let it span multiple Colab sessions.
+PAPER_MODELS = ["transformer_s", "transformer_m", "transformer_l"]
 TREE_MODELS = ["xgboost", "lightgbm"]
-ALL_MODELS = PERSISTENCE_MODELS + TRAINED_NEURAL_MODELS + TREE_MODELS
+ALL_MODELS = PERSISTENCE_MODELS + TRAINED_NEURAL_MODELS + PAPER_MODELS + TREE_MODELS
 BASELINE_MODEL = "persistence_avg"    # reference point for significance tests
 
 RNN_MODELS = {"lstm", "gru"}          # trained fp32 -- bf16 destabilizes RNNs
