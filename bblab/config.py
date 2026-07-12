@@ -124,12 +124,21 @@ class Paths:
         # kWh via the paper's inverse-Box-Cox approximation, pooled metrics as
         # secondary columns, compute accounting per row.
         self.SIM_CSV = f"{self.RESULTS_DIR}/sim_results_v4.csv"
-        self.REAL_CSV = f"{self.RESULTS_DIR}/real_results.csv"
-        self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results.csv"
+        # _v2: real_results.csv previously had no version suffix, so a fix to
+        # load_real_buildings (merging multi-year files of the same building
+        # into one continuous series -- matching the official loader exactly;
+        # the old code counted each year separately, e.g. BDG-2 4022 buildings
+        # inflated to ~2x the correct ~1923) left stale per-model rows in an
+        # unversioned file. run_training_sweep's resumability logic then
+        # "skip"ped every model that had a stale row, silently reusing results
+        # computed against the WRONG building population instead of
+        # re-evaluating against the fix. New filenames force a clean re-run.
+        self.REAL_CSV = f"{self.RESULTS_DIR}/real_results_v2.csv"
+        self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results_v2.csv"
 
         self.PERBUILDING_SIM_DIR = f"{self.RESULTS_DIR}/perbuilding_sim_v2"
-        self.PERBUILDING_REAL_DIR = f"{self.RESULTS_DIR}/perbuilding_real"
-        self.PERBUILDING_REAL_WEATHER_TEMP_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_temp"
+        self.PERBUILDING_REAL_DIR = f"{self.RESULTS_DIR}/perbuilding_real_v2"
+        self.PERBUILDING_REAL_WEATHER_TEMP_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_temp_v2"
 
         self.FIGURES_DIR = f"{self.RESULTS_DIR}/figures"        # EDA + analysis plots (overwritten on re-run)
         self.ANALYSIS_DIR = f"{self.RESULTS_DIR}/analysis_v2"   # weather-value analysis CSVs (Drive)
