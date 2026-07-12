@@ -295,7 +295,19 @@ def build_dataset_cache(building_keys: pd.DataFrame, transforms: dict, paths: co
 
     n_dropped_nonfinite = 0
 
-    for (release, region, puma), g in groups:
+    # Progress logging: this loop is dominated by reading (and on the first
+    # run, downloading) one parquet per (release, region, puma) group --
+    # through Colab's slow Drive FUSE mount this can take tens of minutes with
+    # no other output, which looks like a hang without a heartbeat.
+    import time as _time
+    n_groups = groups.ngroups
+    t0 = _time.time()
+    for gi, ((release, region, puma), g) in enumerate(groups, 1):
+        if verbose and (gi % 50 == 0 or gi == n_groups):
+            el = _time.time() - t0
+            eta = el / gi * (n_groups - gi)
+            print(f"  [{gi}/{n_groups} pumas] {len(loads_native)} buildings so far, "
+                  f"{el/60:.1f}min elapsed, ~{eta/60:.1f}min left", flush=True)
         try:
             pq_df = _fetch_puma_parquet(root_prefix, release, region, puma, paths)
         except Exception as e:
