@@ -514,11 +514,15 @@ def _real_timestamp_col(df: pd.DataFrame):
 
 def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: bool = True) -> list:
     """Returns a list of dicts: {building_id, building_type (+1/-1), series
-    (pd.Series, kW, DatetimeIndex)}. One entry per data column per CSV: most
-    datasets are one-building-per-file, but BDG-2 and Electricity pack many
-    buildings/meters as separate columns in a single file, so those expand to
-    one entry each (taking only the first column silently dropped almost all
-    of their buildings)."""
+    (pd.Series, kW, DatetimeIndex)}. One entry per NAMED building, matching
+    the official TorchBuildingDatasetsFromCSV.__iter__ exactly: a building
+    published as multiple year-files (e.g. BDG-2's Bear_clean=2016.csv and
+    Bear_clean=2017.csv both have a "Bear_public_Orville" column -- same
+    physical meter, confirmed by direct header inspection) is ONE building
+    whose years are concatenated (sorted by year) into one continuous series
+    -- not one building per (file, column). Most datasets are one-building-
+    per-file; BDG-2 and Electricity additionally pack many buildings/meters
+    as separate columns within each year-file."""
     datasets = datasets or REAL_DATASETS
     meta = load_benchmark_toml(paths)
     out = []
@@ -530,7 +534,9 @@ def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: boo
                 print(f"  [warn] cannot list {ds}: {e}")
             continue
         csvs = [n for n in names if n.endswith(".csv") and "_clean=" in n]
-        n_dropped_empty, n_added = 0, 0
+        n_dropped_empty = 0
+        # (site, col_or_None) -> list of (year, pd.Series), across all year-files
+        per_building = {}
         for name in csvs:
             local = Path(paths.RAW_CACHE_DIR) / "real" / ds / name
             _s3_cp(f"{S3_PREFIX}/{ds}/{name}", str(local))
@@ -544,20 +550,31 @@ def load_real_buildings(paths: config.Paths, datasets: list = None, verbose: boo
                 n_dropped_empty += 1
                 continue
             idx = pd.to_datetime(df[ts_col], errors="coerce")
-            site = name.split("_clean=")[0]
-            bt = _building_type_for(ds, site, meta)
             stem = name.split(".csv")[0]
+            site = stem.split("_clean=")[0]
+            try:
+                year = int(stem.split("_clean=")[1])
+            except (IndexError, ValueError):
+                year = 0
             multi = len(data_cols) > 1
             for col in data_cols:
                 vals = pd.to_numeric(df[col], errors="coerce").values
-                series = pd.Series(vals, index=idx).sort_index()
+                series = pd.Series(vals, index=idx)
                 series = series[series.index.notna()]
                 series = series[np.isfinite(series.values)]
                 if series.empty:
                     continue
-                bid = f"{ds}:{stem}:{col}" if multi else f"{ds}:{stem}"
-                out.append({"building_id": bid, "building_type": bt, "series": series})
-                n_added += 1
+                key = (site, col if multi else None)
+                per_building.setdefault(key, []).append((year, series))
+
+        n_added = 0
+        for (site, col), year_series in per_building.items():
+            year_series.sort(key=lambda ys: ys[0])
+            series = pd.concat([s for _, s in year_series]).sort_index()
+            bt = _building_type_for(ds, site, meta)
+            bid = f"{ds}:{site}:{col}" if col is not None else f"{ds}:{site}"
+            out.append({"building_id": bid, "building_type": bt, "series": series})
+            n_added += 1
         if verbose:
             dropped_note = f", dropped {n_dropped_empty} empty/unparseable files" if n_dropped_empty else ""
             print(f"  [real] {ds}: {n_added} buildings from {len(csvs)} files{dropped_note}")
@@ -618,15 +635,16 @@ def load_real_weather_temp_humidity(paths: config.Paths, datasets: list = None, 
 
 
 def weather_for_building(building_id: str, wcache: dict):
-    """building_id: 'DatasetName:filename' (e.g. 'BDG-2:Bear_clean=2016' or
-    'Sceaux:Sceaux_clean=2007'). wcache: output of
+    """building_id: 'DatasetName:site' (e.g. 'Sceaux:Sceaux') or
+    'DatasetName:site:column' for multi-column datasets (e.g.
+    'BDG-2:Bear:Bear_public_Orville'). wcache: output of
     load_real_weather_temp_humidity. Returns the matching DataFrame, or None
     if that building's dataset/site has no weather available -- callers
     (weather_real.py) simply omit such buildings from the +weather track;
     they still appear in the no-weather real-eval track, which covers every
     real building regardless of weather availability."""
-    dataset, rest = building_id.split(":", 1)
+    parts = building_id.split(":")
+    dataset, site = parts[0], parts[1]
     if dataset == "BDG-2":
-        site = rest.split("_")[0]
         return wcache.get(dataset, {}).get(site)
     return wcache.get(dataset, {}).get("default")
