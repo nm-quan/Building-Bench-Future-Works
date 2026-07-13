@@ -135,10 +135,16 @@ class Paths:
         # re-evaluating against the fix. New filenames force a clean re-run.
         self.REAL_CSV = f"{self.RESULTS_DIR}/real_results_v2.csv"
         self.REAL_WEATHER_TEMP_CSV = f"{self.RESULTS_DIR}/real_weather_temp_results_v2.csv"
+        # Extended track: full 7-channel real weather fetched from Open-Meteo
+        # ERA5 (temp/humidity/wind/solar) for the real buildings, so condition-B
+        # checkpoints see all the channels they were trained on (the published
+        # bucket only has temp+humidity). See weather_real.build_full_weather_cache.
+        self.REAL_WEATHER_FULL_CSV = f"{self.RESULTS_DIR}/real_weather_full_results_v2.csv"
 
         self.PERBUILDING_SIM_DIR = f"{self.RESULTS_DIR}/perbuilding_sim_v2"
         self.PERBUILDING_REAL_DIR = f"{self.RESULTS_DIR}/perbuilding_real_v2"
         self.PERBUILDING_REAL_WEATHER_TEMP_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_temp_v2"
+        self.PERBUILDING_REAL_WEATHER_FULL_DIR = f"{self.RESULTS_DIR}/perbuilding_real_weather_full_v2"
 
         self.FIGURES_DIR = f"{self.RESULTS_DIR}/figures"        # EDA + analysis plots (overwritten on re-run)
         self.ANALYSIS_DIR = f"{self.RESULTS_DIR}/analysis_v2"   # weather-value analysis CSVs (Drive)
@@ -146,6 +152,7 @@ class Paths:
     def makedirs(self):
         for d in (self.RAW_CACHE_DIR, self.TRANSFORMS_DIR, self.RESULTS_DIR, self.WEIGHTS_DIR,
                   self.PERBUILDING_SIM_DIR, self.PERBUILDING_REAL_DIR,
-                  self.PERBUILDING_REAL_WEATHER_TEMP_DIR, self.FIGURES_DIR, self.ANALYSIS_DIR):
+                  self.PERBUILDING_REAL_WEATHER_TEMP_DIR, self.PERBUILDING_REAL_WEATHER_FULL_DIR,
+                  self.FIGURES_DIR, self.ANALYSIS_DIR):
             os.makedirs(d, exist_ok=True)
         return self
