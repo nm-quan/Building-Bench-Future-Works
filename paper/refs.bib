@@ -1,96 +1,92 @@
-% NOTE: these entries are drafted from training-data recall, NOT verified
-% against the actual publications. Venue/year/page/author details may be
-% wrong. Verify every entry (e.g. via Google Scholar / Semantic Scholar)
-% before submission -- do not trust this file as-is.
+% ---------------------------------------------------------------------------
+% Bibliography for "Benchmarking Canonical Deep Forecasters on BuildingsBench".
+% Numbered style (natbib [numbers]) -> references render as [1], [2], ...
+% NOTE: verify author lists, venues, and page numbers against the published
+% record before camera-ready; a few fields are filled from recall.
+% ---------------------------------------------------------------------------
 
 @inproceedings{buildingsbench2023,
-  title     = {BuildingsBench: A Large-Scale Dataset of 900K Buildings and Benchmark for Short-Term Load Forecasting},
   author    = {Emami, Patrick and Sahu, Abhijeet and Graf, Peter},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track},
+  title     = {{BuildingsBench}: A Large-Scale Dataset of 900{K} Buildings and
+               Benchmark for Short-Term Load Forecasting},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS),
+               Datasets and Benchmarks Track},
   year      = {2023},
-  note      = {arXiv:2307.00142}
+  eprint    = {2307.00142},
+  archivePrefix = {arXiv},
 }
 
 @inproceedings{patchtst,
-  title     = {A Time Series is Worth 64 Words: Long-term Forecasting with Transformers},
-  author    = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and Kalagnanam, Jayant},
+  author    = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and
+               Kalagnanam, Jayant},
+  title     = {A Time Series is Worth 64 Words: Long-Term Forecasting with
+               Transformers},
   booktitle = {International Conference on Learning Representations (ICLR)},
-  year      = {2023}
+  year      = {2023},
 }
 
 @inproceedings{itransformer,
-  title     = {iTransformer: Inverted Transformers Are Effective for Time Series Forecasting},
-  author    = {Liu, Yong and Hu, Tengge and Zhang, Haoran and Wu, Haixu and Wang, Shiyu and Ma, Lintao and Long, Mingsheng},
+  author    = {Liu, Yong and Hu, Tengge and Zhang, Haoran and Wu, Haixu and
+               Wang, Shiyu and Ma, Lintao and Long, Mingsheng},
+  title     = {{iTransformer}: Inverted Transformers Are Effective for Time
+               Series Forecasting},
   booktitle = {International Conference on Learning Representations (ICLR)},
-  year      = {2024}
+  year      = {2024},
 }
 
 @inproceedings{timexer,
-  title     = {TimeXer: Empowering Transformers for Time Series Forecasting with Exogenous Variables},
-  author    = {Wang, Yuxuan and Wu, Haixu and Dong, Jiaxiang and Liu, Yong and Qiu, Yunzhong and Zhang, Haoran and Wang, Jianmin and Long, Mingsheng},
+  author    = {Wang, Yuxuan and Wu, Haixu and Dong, Jiaxiang and Liu, Yong and
+               Qiu, Yunzhong and Zhang, Haoran and Wang, Jianmin and
+               Long, Mingsheng},
+  title     = {{TimeXer}: Empowering Transformers for Time Series Forecasting
+               with Exogenous Variables},
   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2024}
+  year      = {2024},
 }
 
 @inproceedings{informer,
-  title     = {Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting},
-  author    = {Zhou, Haoyi and Zhang, Shanghang and Peng, Jieqi and Zhang, Shuai and Li, Jianxin and Xiong, Hui and Zhang, Wancai},
+  author    = {Zhou, Haoyi and Zhang, Shanghang and Peng, Jieqi and Zhang, Shuai
+               and Li, Jianxin and Xiong, Hui and Zhang, Wancai},
+  title     = {{Informer}: Beyond Efficient Transformer for Long Sequence
+               Time-Series Forecasting},
   booktitle = {AAAI Conference on Artificial Intelligence},
-  year      = {2021}
-}
-
-@inproceedings{autoformer,
-  title     = {Autoformer: Decomposition Transformers with Auto-Correlation for Long-Term Series Forecasting},
-  author    = {Wu, Haixu and Xu, Jiehui and Wang, Jianmin and Long, Mingsheng},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2021}
+  year      = {2021},
+  pages     = {11106--11115},
 }
 
 @inproceedings{crossformer,
-  title     = {Crossformer: Transformer Utilizing Cross-Dimension Dependency for Multivariate Time Series Forecasting},
   author    = {Zhang, Yunhao and Yan, Junchi},
+  title     = {{Crossformer}: Transformer Utilizing Cross-Dimension Dependency
+               for Multivariate Time Series Forecasting},
   booktitle = {International Conference on Learning Representations (ICLR)},
-  year      = {2023}
+  year      = {2023},
 }
 
 @inproceedings{dlinear,
-  title     = {Are Transformers Effective for Time Series Forecasting?},
   author    = {Zeng, Ailing and Chen, Muxi and Zhang, Lei and Xu, Qiang},
+  title     = {Are Transformers Effective for Time Series Forecasting?},
   booktitle = {AAAI Conference on Artificial Intelligence},
-  year      = {2023}
+  year      = {2023},
+  pages     = {11121--11128},
 }
 
-@article{tft,
-  title     = {Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting},
-  author    = {Lim, Bryan and Arik, Sercan O. and Loeff, Nicolas and Pfister, Tomas},
-  journal   = {International Journal of Forecasting},
-  year      = {2021}
+@article{era5,
+  author    = {Hersbach, Hans and Bell, Bill and Berrisford, Paul and
+               Hirahara, Shoji and Hor{\'a}nyi, Andr{\'a}s and
+               Mu{\~n}oz-Sabater, Joaqu{\'i}n and others},
+  title     = {The {ERA5} Global Reanalysis},
+  journal   = {Quarterly Journal of the Royal Meteorological Society},
+  volume    = {146},
+  number    = {730},
+  pages     = {1999--2049},
+  year      = {2020},
+  publisher = {Wiley},
 }
 
-@inproceedings{xlstm,
-  title     = {xLSTM: Extended Long Short-Term Memory},
-  author    = {Beck, Maximilian and P{\"o}ppel, Korbinian and Spanring, Markus and Auer, Andreas and Prudnikova, Oleksandra and Kopp, Michael and Klambauer, G{\"u}nter and Brandstetter, Johannes and Hochreiter, Sepp},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2024}
-}
-
-@article{tsmixer,
-  title     = {TSMixer: An All-MLP Architecture for Time Series Forecasting},
-  author    = {Chen, Si-An and Li, Chun-Liang and Yoder, Nate and Arik, Sercan O. and Pfister, Tomas},
-  journal   = {Transactions on Machine Learning Research (TMLR)},
-  year      = {2023}
-}
-
-@inproceedings{fits,
-  title     = {FITS: Modeling Time Series with $10k$ Parameters},
-  author    = {Xu, Zhijian and Zeng, Ailing and Xu, Qiang},
-  booktitle = {International Conference on Learning Representations (ICLR)},
-  year      = {2024}
-}
-
-@article{mamba,
-  title     = {Mamba: Linear-Time Sequence Modeling with Selective State Spaces},
-  author    = {Gu, Albert and Dao, Tri},
-  journal   = {arXiv preprint arXiv:2312.00752},
-  year      = {2023}
+@misc{openmeteo,
+  author       = {{Open-Meteo}},
+  title        = {Open-Meteo Historical Weather {API} ({ERA5} Reanalysis Archive)},
+  howpublished = {\url{https://open-meteo.com/en/docs/historical-weather-api}},
+  note         = {Accessed 2026},
+  year         = {2023},
 }
