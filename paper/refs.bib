@@ -5,6 +5,9 @@
 % record before camera-ready; a few fields are filled from recall.
 % ---------------------------------------------------------------------------
 
+% ---------------------------------------------------------------------------
+% Benchmark
+% ---------------------------------------------------------------------------
 @inproceedings{buildingsbench2023,
   author    = {Emami, Patrick and Sahu, Abhijeet and Graf, Peter},
   title     = {{BuildingsBench}: A Large-Scale Dataset of 900{K} Buildings and
@@ -16,6 +19,33 @@
   archivePrefix = {arXiv},
 }
 
+% ---------------------------------------------------------------------------
+% Weather data sources (real-building +weather track)
+% ---------------------------------------------------------------------------
+@article{era5,
+  title     = {The {ERA5} global reanalysis},
+  author    = {Hersbach, Hans and Bell, Bill and Berrisford, Paul and Hirahara, Shoji and Hor{\'a}nyi, Andr{\'a}s and Mu{\~n}oz-Sabater, Joaqu{\'i}n and Nicolas, Julien and Peubey, Carole and Radu, Raluca and Schepers, Dinand and others},
+  journal   = {Quarterly Journal of the Royal Meteorological Society},
+  volume    = {146},
+  number    = {730},
+  pages     = {1999--2049},
+  year      = {2020},
+  publisher = {Wiley},
+  doi       = {10.1002/qj.3803}
+}
+
+@misc{openmeteo,
+  title        = {Open-Meteo.com Weather {API}},
+  author       = {Zippenfenig, Patrick},
+  year         = {2023},
+  publisher    = {Zenodo},
+  howpublished = {\url{https://open-meteo.com}},
+  doi          = {10.5281/zenodo.7970649}
+}
+
+% ---------------------------------------------------------------------------
+% Deep forecasting architectures
+% ---------------------------------------------------------------------------
 @inproceedings{patchtst,
   author    = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and
                Kalagnanam, Jayant},

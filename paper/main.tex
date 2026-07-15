@@ -16,6 +16,19 @@
 
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 
+% Render a figure if its file is present, otherwise a labelled placeholder so the
+% document always compiles. The EDA/visualization PNGs are produced by the study
+% notebook and saved to results/figures/ on Drive; copy them into paper/figures/
+% (see paper/README) to replace the placeholders with the real plots.
+\newcommand{\figorbox}[2][width=\linewidth]{%
+  \IfFileExists{#2}%
+    {\includegraphics[#1]{#2}}%
+    {\framebox[0.9\linewidth]{\parbox{0.82\linewidth}{\centering\vspace{1.6em}%
+      \ttfamily\small\detokenize{#2}\\[0.5em]%
+      \normalfont\itshape figure file not committed; copy from Drive \texttt{results/figures/} (see paper/README)%
+      \vspace{1.6em}}}}%
+}
+
 \title{\textbf{Benchmarking Canonical Deep Forecasters on BuildingsBench:\\
 The Value of Weather Inputs for Short-Term Load Forecasting}}
 
@@ -154,20 +167,20 @@ correlation panel motivates the weather-value analysis of Section~\ref{sec:weath
 \begin{figure}[t]
   \centering
   \begin{subfigure}[b]{0.9\textwidth}
-    \includegraphics[width=\textwidth]{figures/load_heatmap.png}
+    \figorbox[width=\textwidth]{figures/load_heatmap.png}
     \caption{Mean normalized load by day-of-year (x) and hour-of-day (y),
     commercial vs.\ residential.}
     \label{fig:eda-heatmap}
   \end{subfigure}
   \\[0.5em]
   \begin{subfigure}[b]{0.48\textwidth}
-    \includegraphics[width=\textwidth]{figures/daily_profiles.png}
+    \figorbox[width=\textwidth]{figures/daily_profiles.png}
     \caption{Median daily profile with IQR band.}
     \label{fig:eda-profile}
   \end{subfigure}
   \hfill
   \begin{subfigure}[b]{0.48\textwidth}
-    \includegraphics[width=\textwidth]{figures/weather_load_corr.png}
+    \figorbox[width=\textwidth]{figures/weather_load_corr.png}
     \caption{Weather--load correlation per channel.}
     \label{fig:eda-corr}
   \end{subfigure}
@@ -188,6 +201,76 @@ sinusoidally encoded). The context length is $L=168$h and the forecast horizon i
 $H=24$h. For reproducibility we note that Buildings-900K parquet rows are not
 stored chronologically ($>99.9\%$ of adjacent rows are non-consecutive in time);
 every window is therefore built from timestamp-sorted, monotonicity-checked series.
+
+\subsection{Real-Building Weather Acquisition and Validation}
+\label{sec:weather-real-data}
+Evaluating a +weather model on real buildings requires the same seven weather
+channels the model was trained on, but the benchmark's public bucket publishes
+only \emph{temperature} (and a derived humidity) for its real datasets---the
+other five channels (wind speed, wind direction, and the three radiation
+components) exist nowhere for the real buildings. Its own real-building weather
+path therefore uses temperature alone. To evaluate our +weather checkpoints
+under the exact input they expect, we reconstruct the full seven-channel record
+for every real building from a public reanalysis archive, and---because a
+weather series silently misaligned in location, time zone, or units would
+corrupt the entire comparison---we admit it only after an explicit validation
+gate.
+
+\paragraph{Source and alignment.} We fetch all seven channels from Open-Meteo's
+ERA5 archive \citep{openmeteo,era5}, the same reanalysis family the benchmark
+authors used. Crucially, we do not guess coordinates: for each of the ten
+weather locations (one per real dataset, plus one per BDG-2 campus site) we take
+the latitude/longitude, date range, and fixed local-standard-time (no-DST)
+offset \emph{verbatim from the benchmark's own weather-download script}, so our
+series is anchored to the buildings' true locations rather than the CONUS proxy
+coordinates in the public metadata. Data are requested in UTC with wind speed in
+m\,s$^{-1}$ (matching the training channels) and then shifted by the recovered
+integer-hour offset to local standard time, reproducing the authors'
+index-shift convention. Each location is fetched once and cached; the seven
+channels are then standardized with the benchmark's own already-fit per-channel
+scalers (Section~\ref{sec:preprocessing}), never re-fit on the real data.
+
+\paragraph{Validation gate.} Before any fetched series is used, we compare its
+temperature against the benchmark's \emph{published} temperature for that
+location over their overlapping hours, and admit the location only if all three
+checks pass: (i) Pearson $r>0.95$ at zero lag; (ii) the best cross-correlation
+lag over $\pm12$\,h is exactly $0$\,h, which catches time-zone errors by
+detecting a shifted diurnal cycle; and (iii) the mean temperature offset is
+$<3^{\circ}$C, which catches unit errors (e.g.\ Kelvin-vs-Celsius or a
+wind-speed unit slip). Any location that fails is dropped from the cache and its
+buildings simply do not enter the +weather track, so a misaligned series can
+never silently reach the evaluation. All ten locations passed
+(Table~\ref{tab:weather-gate}): temperature correlation ranged from $0.958$ to
+$0.995$, every best lag was $0$\,h, and the largest mean offset was
+$1.06^{\circ}$C, so all $1{,}923$ real buildings received validated
+seven-channel weather.
+
+\begin{table}[H]
+\centering
+\caption{Real-weather validation gate. Fetched ERA5 temperature vs.\ the
+benchmark's published temperature per location: zero-lag Pearson $r$, best
+cross-correlation lag over $\pm12$\,h (a nonzero lag would flag a time-zone
+error), and mean absolute temperature offset (a large value would flag a unit
+error). All ten locations pass ($r>0.95$, lag $=0$, offset $<3^{\circ}$C).}
+\label{tab:weather-gate}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Location (dataset/site) & Region & $r$@lag\,0 & Best lag (h) & $|\Delta T|$ ($^\circ$C) \\
+\midrule
+LCL         & London, UK        & 0.994 & 0 & 0.05 \\
+IDEAL       & Edinburgh, UK     & 0.986 & 0 & 0.11 \\
+Sceaux      & Sceaux, FR        & 0.994 & 0 & 0.17 \\
+Borealis    & Waterloo, CA      & 0.993 & 0 & 0.17 \\
+Electricity & Lisbon, PT        & 0.991 & 0 & 0.01 \\
+SMART       & Amherst, US       & 0.995 & 0 & 0.27 \\
+BDG-2 / Rat     & Washington DC, US & 0.995 & 0 & 0.47 \\
+BDG-2 / Fox     & Tempe, US         & 0.991 & 0 & 0.08 \\
+BDG-2 / Panther & Orlando, US       & 0.958 & 0 & 0.98 \\
+BDG-2 / Bear    & Berkeley, US      & 0.958 & 0 & 1.06 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Training}
 \label{sec:training}
@@ -259,7 +342,7 @@ shows that this in-distribution signal does not survive transfer to real buildin
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.72\textwidth]{figures/loss_curves.png}
+  \figorbox[width=0.72\textwidth]{figures/loss_curves.png}
   \caption{Validation Gaussian NLL vs.\ epoch (solid = +weather, dashed =
   no-weather), from training logs. Attention models (Crossformer) show a much
   larger no-weather$\to$+weather gap than recurrent models (LSTM).}
