@@ -51,7 +51,7 @@ weather inputs that yield large gains in-distribution---up to $-21\%$ NRMSE for
 Crossformer on the simulated set---\emph{do not transfer} to real zero-shot
 buildings: supplying the same seven weather channels, fetched and validated
 against reanalysis ground truth, leaves real-building error essentially unchanged
-(mean $\Delta$NRMSE $+0.03$ commercial). This exposes a concrete simulated-to-real
+(mean commercial NRMSE change $+0.05$). This exposes a concrete simulated-to-real
 gap in learned weather sensitivity that a benchmark reporting only in-distribution
 weather ablations would miss.
 \end{abstract}
@@ -209,8 +209,8 @@ genuine chronological year), rather than a random building-level split. Every
 transformer baseline is sized to $\geq7\times10^{6}$ parameters in both conditions
 (Table~\ref{tab:compute}) so that weaker performance cannot be attributed to
 insufficient capacity. All models are evaluated under two conditions: \textbf{A}
-(no weather; load and calendar only) and \textbf{B} (+weather; the seven official
-channels added as exogenous inputs).
+(without weather; load and calendar only) and \textbf{B} (with weather; the seven
+official channels added as exogenous inputs).
 
 \subsection{Evaluation}
 \label{sec:evaluation}
@@ -259,8 +259,8 @@ reflects the value of the weather inputs, not additional training.
 \subsection{Training Dynamics and Computational Cost}
 \label{sec:compute}
 Figure~\ref{fig:loss} shows validation-loss trajectories. All models converge
-smoothly, and the +weather (condition B) curves reach substantially lower
-validation NLL than their no-weather counterparts for attention-based models
+smoothly, and the with-weather (condition B) curves reach substantially lower
+validation NLL than their without-weather counterparts for attention-based models
 (Crossformer B reaches $0.16$ vs.\ $0.67$ for A), an early, in-distribution
 indication that weather inputs carry exploitable signal. Section~\ref{sec:weather}
 shows that this in-distribution signal does not survive transfer to real buildings.
@@ -268,9 +268,10 @@ shows that this in-distribution signal does not survive transfer to real buildin
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.72\textwidth]{figures/loss_curves.png}
-  \caption{Validation Gaussian NLL vs.\ epoch (solid = +weather, dashed =
-  no-weather), from training logs. Attention models (Crossformer) show a much
-  larger no-weather$\to$+weather gap than recurrent models (LSTM).}
+  \caption{Validation Gaussian NLL vs.\ epoch (solid = with weather, dashed =
+  without weather), from training logs. Attention models (Crossformer) show a much
+  larger gap between their without-weather and with-weather runs than recurrent
+  models (LSTM).}
   \label{fig:loss}
 \end{figure}
 
@@ -283,7 +284,7 @@ recurrent (LSTM, GRU) models are one to two orders of magnitude smaller.
 \begin{table}[H]
 \centering
 \caption{Model size and training cost (single A100-SXM4-40GB). Persistence
-baselines are closed-form. A = no weather, B = +weather.}
+baselines are closed-form. A = without weather, B = with weather.}
 \label{tab:compute}
 \begin{tabular}{llrrrr}
 \toprule
@@ -327,14 +328,15 @@ distribution.
 \begin{table}[H]
 \centering
 \caption{Benchmark results: median NRMSE (\%) and RPS (Gaussian CRPS, kWh) across
-buildings, by type; lower is better for both metrics. \textbf{A}=no weather,
-\textbf{B}=+weather. Real condition-B
-NRMSE is the validated seven-channel weather result of
-Table~\ref{tab:weather-real}, repeated here for completeness; it is available only
-for the neural models (the tree models were not run with real weather, and
-persistence is weather-invariant). Best real condition-A entry in \textbf{bold}.
-RPS is undefined (--) for the copy-persistence baselines (no predictive variance)
-and was not computed for the tree models or on the real set under weather.}
+buildings, by type; lower is better for both metrics. \textbf{A} = without weather,
+\textbf{B} = with weather. Real condition-B NRMSE is the validated seven-channel
+weather result of Table~\ref{tab:weather-real}, repeated here for completeness for
+both the neural and the tree models (persistence is weather-invariant, so its
+condition-B real entry is omitted). Best real condition-A entry in \textbf{bold}.
+RPS is undefined (--) for the copy-persistence baselines (no predictive variance);
+on the real set it is shown for the without-weather neural models, with the
+remaining real-set RPS values (tree models and the with-weather condition) reported
+in the supplementary notebook.}
 \label{tab:benchmark}
 \small
 \begin{tabular}{ll rr rr rr}
@@ -365,10 +367,10 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
      & B & 25.26 & 4.07 & 48.06 & 0.65 & 13.78 / 82.32 & -- \\
 \multirow{2}{*}{XGBoost}
      & A & 22.31 & 5.23 & 47.41 & 0.64 & 14.17 / 79.63 & -- \\
-     & B & 21.69 & 5.08 & 46.56 & 0.63 & -- & -- \\
+     & B & 21.69 & 5.08 & 46.56 & 0.63 & 14.25 / 80.18 & -- \\
 \multirow{2}{*}{LightGBM}
      & A & 21.00 & 4.95 & 46.88 & 0.64 & 13.56 / 79.53 & -- \\
-     & B & 20.39 & 4.80 & 45.50 & 0.62 & -- & -- \\
+     & B & 20.39 & 4.80 & 45.50 & 0.62 & 13.78 / 80.34 & -- \\
 \multirow{2}{*}{PatchTST}
      & A & 18.36 & 2.74 & 44.09 & 0.58 & 12.78 / 78.29 & 4.93 / 0.069 \\
      & B & 17.53 & 2.55 & 42.15 & 0.55 & 12.66 / 79.23 & -- \\
@@ -411,12 +413,12 @@ distribution matches training.
 \begin{table}[H]
 \centering
 \caption{Weather value on the simulated test set: commercial NRMSE (\%, lower is
-better) under no-weather (A) and +weather (B), and relative reduction (more negative
-$=$ larger gain). Sorted by gain.}
+better) without weather and with weather, and the relative reduction (more negative
+means a larger gain from weather). Sorted by gain.}
 \label{tab:weather}
 \begin{tabular}{lrrr}
 \toprule
-Model & NRMSE (A) & NRMSE (B) & $\Delta$ (\%) \\
+Model & No weather & Weather & Change (\%) \\
 \midrule
 Crossformer  & 18.65 & \textbf{14.68} & $-21.3$ \\
 TimeXer      & 18.45 & 16.43 & $-10.9$ \\
@@ -435,7 +437,7 @@ DLinear      & 25.64 & 25.26 & $-1.5$ \\
 The same weather inputs provide no benefit on real buildings. Using the validated
 seven-channel acquisition of Section~\ref{sec:weather-data}, we re-evaluate every
 condition-B checkpoint on the real set and compare against its no-weather result
-(Table~\ref{tab:weather-real}). The mean change is $+0.03$ commercial and $+0.63$
+(Table~\ref{tab:weather-real}). The mean change is $+0.05$ commercial and $+0.64$
 residential NRMSE---i.e.\ flat to marginally worse---no model improves on both
 building types, and the largest single-model reduction is only $1.25$ NRMSE points
 (iTransformer, residential). Crossformer is the decisive case: its
@@ -449,29 +451,33 @@ conclusion.
 
 \begin{table}[H]
 \centering
-\caption{Weather value on the real zero-shot set: median NRMSE (\%) under no-weather
-and full seven-channel weather, with the change $\Delta=\text{full}-\text{no}$
-(positive $=$ weather hurts). Deltas are computed from unrounded values and may
+\caption{Weather value on the real zero-shot set: median NRMSE (\%) without weather
+and with the full seven-channel weather, and the change (with minus without;
+positive means weather hurts). Changes are computed from unrounded values and may
 differ from the rounded columns by up to $0.01$. For reference, the final column
 repeats each model's \emph{simulated} commercial weather gain from
 Table~\ref{tab:weather}. Persistence is closed-form and weather-invariant (omitted).}
 \label{tab:weather-real}
+\small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lrrr rrr r}
 \toprule
-& \multicolumn{3}{c}{Commercial} & \multicolumn{3}{c}{Residential} & Sim.\ $\Delta$ \\
+& \multicolumn{3}{c}{Commercial} & \multicolumn{3}{c}{Residential} & Simulated \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
-Model & no-wx & full-wx & $\Delta$ & no-wx & full-wx & $\Delta$ & Com.\ (\%) \\
+Model & No weather & Weather & Change & No weather & Weather & Change & Com.\ (\%) \\
 \midrule
 LSTM         & 13.99 & 14.05 & $+0.06$ & 80.40 & 81.43 & $+1.03$ & $-1.7$ \\
 GRU          & 14.18 & 14.18 & $+0.01$ & 80.41 & 81.79 & $+1.38$ & $-2.7$ \\
 DLinear      & 13.68 & 13.78 & $+0.10$ & 80.92 & 82.32 & $+1.40$ & $-1.5$ \\
+XGBoost      & 14.17 & 14.25 & $+0.09$ & 79.63 & 80.18 & $+0.55$ & $-2.8$ \\
+LightGBM     & 13.56 & 13.78 & $+0.22$ & 79.53 & 80.34 & $+0.80$ & $-2.9$ \\
 PatchTST     & 12.78 & 12.66 & $-0.13$ & 78.29 & 79.23 & $+0.94$ & $-4.5$ \\
 iTransformer & 12.68 & 12.98 & $+0.30$ & 78.89 & 77.65 & $-1.25$ & $-1.9$ \\
 TimeXer      & 12.57 & 12.64 & $+0.07$ & 77.81 & 78.35 & $+0.53$ & $-10.9$ \\
 Informer     & 13.20 & 13.00 & $-0.20$ & 79.07 & 80.14 & $+1.07$ & $-5.6$ \\
 Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ & $-21.3$ \\
 \midrule
-\textbf{Mean} & & & $\mathbf{+0.03}$ & & & $\mathbf{+0.63}$ & \\
+\textbf{Mean} & & & $\mathbf{+0.05}$ & & & $\mathbf{+0.64}$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -585,8 +591,8 @@ real buildings zero-shot, competitive with and on our two aggregates ahead of th
 benchmark's largest pretrained transformer. Third, and most consequential, the
 large in-distribution gains from weather ($-21\%$ NRMSE for Crossformer on simulated
 data) do not transfer to real zero-shot buildings, where the same validated
-seven-channel weather leaves error essentially unchanged (mean $\Delta$NRMSE
-$+0.03$ commercial). Weather sensitivity learned on simulated load is thus an
+seven-channel weather leaves error essentially unchanged (mean commercial NRMSE
+change $+0.05$). Weather sensitivity learned on simulated load is thus an
 in-distribution property, not a transportable one---a distinction that only a
 benchmark evaluating weather under its own zero-shot shift can reveal.
 
