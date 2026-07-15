@@ -1,17 +1,15 @@
 # Paper draft
 
-LaTeX source for the write-up of the BuildingsBench re-benchmark study.
+LaTeX source for the BuildingsBench re-benchmark study.
 
-- `main.tex` -- full draft following the journal-article format of the
-  reference papers; section structure Abstract, Introduction, Related Work,
-  Methodology (incl. real-building weather acquisition + validation), Results
-  (incl. the simulation-to-real weather-transfer study), Limitations and Future
-  Work, Conclusion.
-- `refs.bib` -- bibliography. Core entries (BuildingsBench, ERA5, Open-Meteo,
-  and the architecture papers) were cross-checked against the published sources;
-  please re-confirm any entry before camera-ready. Citations are numbered
-  (`natbib` `[numbers,sort&compress]`).
-- `figures/loss_curves.png` -- generated from the actual validation-NLL logs.
+- `main.tex` — full draft. Structure: Abstract, Introduction, Related Work,
+  Methodology (incl. §3.5 real-building weather acquisition), Results
+  (compute, benchmark, weather in-distribution vs. zero-shot, vs-original,
+  qualitative), Limitations, Future Work, Conclusion.
+- `refs.bib` — numbered bibliography (`natbib [numbers]`). **Verify author
+  lists / venues / pages against the published record before camera-ready**
+  (a few fields are from recall; noted at the top of the file).
+- `figures/loss_curves.png` — generated from real validation-NLL logs (present).
 
 ## Build
 ```

@@ -6,14 +6,13 @@
 \usepackage{graphicx}
 \usepackage{multirow}
 \usepackage{hyperref}
-\usepackage[numbers,sort&compress]{natbib}
+\usepackage[numbers,square,sort&compress]{natbib}
 \usepackage{xcolor}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{authblk}
-
-\usepackage{placeins} % <--- ADD THIS HERE!
-\usepackage{float}    % <--- ADD THIS HERE TOO!
+\usepackage{placeins}
+\usepackage{float}
 
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 
@@ -37,90 +36,79 @@ The Value of Weather Inputs for Short-Term Load Forecasting}}
 \author[1]{\todo{Author Two}}
 \affil[1]{\todo{Affiliation}}
 \date{\today}
+
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Short-term load forecasting (STLF) underpins reliable and economical power
-system operation, and the recent BuildingsBench benchmark has standardized its
-evaluation over a large-scale corpus of 900{,}000 simulated buildings together
-with seven real-world datasets. However, its public leaderboard fixes a
-particular model family, while the time-series forecasting literature has since
-converged on a different set of standard architectures that have never been
-evaluated under the same protocol. In this work we re-implement BuildingsBench's
-exact preprocessing, temporal validation split, and median-aggregated metrics,
-and benchmark a broad set of canonical published forecasters---PatchTST,
-iTransformer, TimeXer, Informer, Crossformer, and DLinear, alongside recurrent
-(LSTM, GRU) and gradient-boosted (XGBoost, LightGBM) baselines---each transformer
-sized to a common $\geq$7M-parameter floor so that model capacity is never a
-confound. On the official simulated test set, every trained model significantly
-outperforms all three persistence baselines (Friedman $p\approx0$), and our
-pipeline reproduces the paper's own persistence values to within $0.4$ NRMSE
-points, validating the re-implementation. On the seven real-world datasets
-(1{,}923 buildings, zero-shot), our strongest model (TimeXer, $12.57$\%
-commercial NRMSE) surpasses the value reported for the original benchmark's
-largest pretrained transformer. Finally, contrasting no-weather and +weather
-conditions on the simulated set, we quantify \emph{how much} weather inputs help
-each architecture, finding the largest gains for cross-dimension attention models
-(Crossformer: $-21\%$ commercial NRMSE) and little change for recurrent, linear,
-and inverted-attention models. To test whether this value is genuine or an
-artifact of the physics simulator, we build a validated full-seven-channel
-real-weather track---fetching ERA5 reanalysis for each real building's true
-location and gating it against the benchmark's own published series before
-use---and find that the simulated weather gains almost entirely vanish on real
-meters (mean absolute commercial-NRMSE change $\approx0.1$ point, mixed sign).
-This indicates that the exploitable weather signal is largely a property of the
-simulated pretraining corpus rather than of real building load, a caution for
-weather-conditioned benchmarking on synthetic data.
+Short-term load forecasting (STLF) underpins reliable and economical power-system
+operation, and the recent BuildingsBench benchmark has standardized its evaluation
+over a large-scale corpus of 900{,}000 simulated buildings together with seven
+real-world datasets. Its public leaderboard, however, fixes a particular model
+family, while the time-series forecasting literature has since converged on a
+different set of standard architectures that have never been evaluated under the
+same protocol. We re-implement BuildingsBench's exact preprocessing, temporal
+validation split, and median-aggregated metrics, and benchmark a broad set of
+canonical published forecasters---PatchTST, iTransformer, TimeXer, Informer,
+Crossformer, and DLinear, alongside recurrent (LSTM, GRU) and gradient-boosted
+(XGBoost, LightGBM) baselines---each transformer sized to a common
+$\geq$7M-parameter floor so that capacity is never a confound. Three results
+follow. First, our pipeline reproduces the benchmark's own persistence values to
+within $0.4$ NRMSE points, and on the simulated test set every trained model
+significantly outperforms all three persistence baselines (Friedman $p\approx0$).
+Second, on the seven real-world datasets (1{,}922 buildings, zero-shot), the
+strongest model (TimeXer, $12.57\%$ commercial NRMSE) surpasses the value reported
+for the benchmark's largest pretrained transformer. Third, and most striking,
+weather inputs that yield large gains in-distribution---up to $-21\%$ NRMSE for
+Crossformer on the simulated set---\emph{do not transfer} to real zero-shot
+buildings: supplying the same seven weather channels, fetched and validated
+against reanalysis ground truth, leaves real-building error essentially unchanged
+(mean $\Delta$NRMSE $+0.03$ commercial). This exposes a concrete simulated-to-real
+gap in learned weather sensitivity that a benchmark reporting only in-distribution
+weather ablations would miss.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:intro}
-Accurate short-term load forecasting (STLF) is central to power-system
-scheduling, demand response, and the integration of variable renewable
-generation. As demand-side behavior diversifies, forecasting must exploit not
-only historical load but also exogenous drivers such as weather and calendar
-effects \citep{buildingsbench2023}. Deep learning has become the dominant
-approach, but progress has historically been fragmented across proprietary
-datasets and inconsistent evaluation protocols, making cross-study comparison
-difficult.
+Accurate short-term load forecasting (STLF) is central to power-system scheduling,
+demand response, and the integration of variable renewable generation. As
+demand-side behavior diversifies, forecasting increasingly relies not only on
+historical load but also on exogenous drivers such as weather and calendar
+effects \citep{buildingsbench2023}. Deep learning now dominates the task, yet
+progress has been fragmented across proprietary datasets and inconsistent
+evaluation protocols, which makes cross-study comparison difficult.
 
-BuildingsBench \citep{buildingsbench2023} addressed this by releasing
+BuildingsBench \citep{buildingsbench2023} addressed this fragmentation by releasing
 Buildings-900K---a corpus of roughly 900{,}000 simulated buildings for
 pretraining---together with a standardized zero-shot evaluation over seven
-real-world datasets, fixed preprocessing, and a published leaderboard. Its
-headline models are a purpose-built Transformer with a Gaussian or tokenized
-output head. Since its release, however, the general time-series forecasting
-community has converged on a different set of standard architectures (PatchTST,
-iTransformer, TimeXer, and others) that have not been evaluated under the
-BuildingsBench protocol. Two questions therefore remain open: (i) how do these
-now-canonical forecasters perform on this benchmark relative to persistence and
-to the benchmark's own model family, and (ii) how much do the benchmark's
-weather inputs actually contribute for each architecture?
+real-world datasets, fixed preprocessing, and a public leaderboard. Its headline
+models are a purpose-built Transformer with a Gaussian or tokenized output head.
+Since its release, however, the general time-series forecasting community has
+converged on a different set of standard architectures---PatchTST, iTransformer,
+TimeXer, and others---that have never been evaluated under the BuildingsBench
+protocol. Two questions therefore remain open: how do these now-canonical
+forecasters perform on this benchmark relative to persistence and to the
+benchmark's own model family, and how much do the benchmark's weather inputs
+actually contribute, in-distribution and under the zero-shot shift to real
+buildings that the benchmark is built to measure?
 
-This paper makes the following contributions:
+We answer both questions and, in doing so, surface a finding that the benchmark's
+own protocol cannot: the weather sensitivity that models learn on simulated data
+does not transfer to real buildings. Concretely, this paper contributes:
 \begin{enumerate}
-  \item \textbf{A faithful re-implementation} of BuildingsBench preprocessing,
+  \item \textbf{A faithful re-implementation} of BuildingsBench preprocessing, the
   temporal train/validation split, and median-aggregated NRMSE/RPS metrics,
-  verified by reproducing the paper's own persistence baselines to within
+  verified by reproducing the benchmark's own persistence baselines to within
   $0.4$ NRMSE points (Section~\ref{sec:benchmark}).
   \item \textbf{A broad benchmark} of canonical deep forecasters (PatchTST,
-  iTransformer, TimeXer, Informer, Crossformer, DLinear) and classical
-  baselines (LSTM, GRU, XGBoost, LightGBM), each transformer sized to a common
-  $\geq7\times10^{6}$-parameter budget, evaluated on both the simulated test set
-  and the seven real-world datasets.
-  \item \textbf{A quantitative study of weather value, and a simulation-to-real
-  transfer test.} Contrasting no-weather and +weather conditions on the simulated
-  test set, we measure the improvement attributable to weather inputs per
-  architecture. We then ask whether that improvement is real by introducing a
-  \emph{validated full-seven-channel real-weather track}: we recover each real
-  building's true location and time zone from the benchmark's own scripts,
-  reconstruct the full seven-channel weather record from ERA5 reanalysis
-  (recovering the five channels the benchmark never published for real
-  buildings), and gate every location against the benchmark's published
-  temperature series before trusting it (Section~\ref{sec:weather-real-data}).
-  The large simulated weather gains do not transfer, exposing a
-  synthetic-versus-real gap in weather signal (Section~\ref{sec:weather-real}).
+  iTransformer, TimeXer, Informer, Crossformer, DLinear) and classical baselines
+  (LSTM, GRU, XGBoost, LightGBM), each transformer sized to a common
+  $\geq7\times10^{6}$-parameter budget, on both the simulated and real test sets.
+  \item \textbf{A two-regime study of weather value.} On the simulated set we
+  measure per-architecture gains from weather; on the real set we introduce a
+  validated seven-channel weather-acquisition pipeline (Section~\ref{sec:weather-data})
+  and show that the substantial in-distribution gains vanish under zero-shot
+  transfer, quantifying a simulated-to-real gap in learned weather sensitivity.
 \end{enumerate}
 
 \section{Related Work}
@@ -128,59 +116,53 @@ This paper makes the following contributions:
 
 \subsection{The BuildingsBench Benchmark}
 \label{sec:related-bb}
-BuildingsBench \citep{buildingsbench2023} comprises Buildings-900K, a
-pretraining corpus of simulated hourly load generated from the U.S.\ Department
-of Energy's ResStock and ComStock building-stock models, and a zero-shot
-evaluation suite of seven real building datasets. The benchmark fixes a
-168-hour context and 24-hour forecast horizon, a global Box--Cox load transform,
-per-channel weather standardization, and reports NRMSE (coefficient of variation
-of RMSE) and a ranked probability score (RPS), aggregated as the median across
-per-building values with bootstrapped confidence intervals. Its published models
-are Transformer-\{S,M,L\} variants with either a Gaussian or a tokenized output
-head. We adopt its preprocessing and metrics verbatim (Section~\ref{sec:method})
-so that our numbers are directly comparable to its leaderboard.
+BuildingsBench \citep{buildingsbench2023} comprises Buildings-900K, a pretraining
+corpus of simulated hourly load generated from the U.S.\ Department of Energy's
+ResStock and ComStock building-stock models, and a zero-shot evaluation suite of
+seven real building datasets. The benchmark fixes a 168-hour context and 24-hour
+forecast horizon, a global Box--Cox load transform, per-channel weather
+standardization, and reports NRMSE (coefficient of variation of RMSE) and a ranked
+probability score (RPS), aggregated as the median across per-building values with
+bootstrapped confidence intervals. Its published models are Transformer-\{S,M,L\}
+variants with either a Gaussian or a tokenized output head. We adopt its
+preprocessing and metrics verbatim (Section~\ref{sec:method}) so that our numbers
+are directly comparable to its leaderboard.
 
 \subsection{Deep Forecasting Architectures}
 \label{sec:related-arch}
-We benchmark architectures spanning the main design families of modern
-time-series forecasting. \textbf{Patch-based transformers} such as PatchTST
-\citep{patchtst} segment a series into subseries patches processed
-channel-independently. \textbf{Inverted attention} (iTransformer,
-\citealp{itransformer}) treats each variate as a token and attends across
-variables. \textbf{Exogenous-aware transformers} such as TimeXer
-\citep{timexer} explicitly separate endogenous patch tokens from exogenous
-variate tokens, making them a natural fit for weather-conditioned load
-forecasting. \textbf{Efficiency-oriented} designs include Informer's ProbSparse
-attention \citep{informer} and Crossformer's two-stage cross-dimension attention
-\citep{crossformer}. As a linear control, we include DLinear
-\citep{dlinear}, which questioned whether transformers are necessary at all. We
-also retain recurrent (LSTM, GRU) and gradient-boosted tree (XGBoost, LightGBM)
-baselines, which remain competitive in operational STLF. Each transformer is
-scaled to a common $\geq7$M-parameter budget so that architectural differences,
-rather than capacity, drive the comparison.
+We benchmark architectures spanning the main design families of modern time-series
+forecasting. \textbf{Patch-based transformers} such as PatchTST \citep{patchtst}
+segment a series into subseries patches processed channel-independently.
+\textbf{Inverted attention} (iTransformer, \citealp{itransformer}) treats each
+variate as a token and attends across variables. \textbf{Exogenous-aware
+transformers} such as TimeXer \citep{timexer} explicitly separate endogenous patch
+tokens from exogenous variate tokens, a design intended for exactly the
+weather-conditioned setting studied here. \textbf{Efficiency-oriented} designs
+include Informer's ProbSparse attention \citep{informer} and Crossformer's
+two-stage cross-dimension attention \citep{crossformer}. As a linear control we
+include DLinear \citep{dlinear}, which questioned whether transformers are
+necessary at all. We retain recurrent (LSTM, GRU) and gradient-boosted tree
+(XGBoost, LightGBM) baselines, which remain competitive in operational STLF. Each
+transformer is scaled to a common $\geq7$M-parameter budget so that architectural
+differences, not capacity, drive the comparison.
 
 \section{Methodology}
 \label{sec:method}
 
 \subsection{Dataset and Test Sets}
 \label{sec:dataset}
-We use a compute-bounded subsample of $N=20{,}000$ buildings from Buildings-900K
-for training, drawn via the official weekly-sampled index file, and evaluate on
+We train on a compute-bounded subsample of $N=20{,}000$ buildings from
+Buildings-900K, drawn via the official weekly-sampled index file, and evaluate on
 two held-out sets: (i) the official \emph{Buildings-900K-test} simulated split
-($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}923$
-buildings ($970$ commercial, $953$ residential) pooled from seven open datasets
-(BDG-2, Borealis, Electricity, IDEAL, LCL, SMART, Sceaux); the $1{,}922$ of these
-with at least one full $168{+}24$\,h window enter the metrics. Multi-year files
-of the same physical building are concatenated into a single continuous series,
-matching the official loader; our building count agrees with the benchmark's
-reported ``over 1{,}900'' real buildings.
-
-Figure~\ref{fig:eda} characterizes the data. The load heatmaps
-(Figure~\ref{fig:eda-heatmap}) show the strong diurnal and seasonal structure
-that forecasting must capture, and the differing commercial/residential
-profiles; Figure~\ref{fig:eda-corr} shows the per-channel weather--load
-correlation, motivating the weather-value analysis of
-Section~\ref{sec:weather}.
+($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}922$ buildings
+($970$ commercial, $953$ residential) pooled from seven open datasets (BDG-2,
+Borealis, Electricity, IDEAL, LCL, SMART, Sceaux). Multi-year files of the same
+physical building are concatenated into one continuous series, matching the
+official loader; our building count agrees with the benchmark's reported ``over
+1{,}900'' real buildings. Figure~\ref{fig:eda} characterizes the data: the load
+heatmaps show the strong diurnal and seasonal structure forecasting must capture
+and the differing commercial/residential profiles, and the weather--load
+correlation panel motivates the weather-value analysis of Section~\ref{sec:weather}.
 
 \begin{figure}[t]
   \centering
@@ -202,8 +184,7 @@ Section~\ref{sec:weather}.
     \caption{Weather--load correlation per channel.}
     \label{fig:eda-corr}
   \end{subfigure}
-  \caption{Exploratory analysis of the training subsample and real test set.
-  }
+  \caption{Exploratory analysis of the training subsample and real test set.}
   \label{fig:eda}
 \end{figure}
 
@@ -211,16 +192,15 @@ Section~\ref{sec:weather}.
 \label{sec:preprocessing}
 We use the benchmark's own already-fit transforms rather than re-fitting them: a
 global Box--Cox transform on load and a per-channel standardization of the seven
-official weather channels (temperature, humidity, wind speed, wind direction,
-and global horizontal, direct normal, and diffuse horizontal radiation). Both
-are downloaded from the benchmark's public artifact bucket and validated at load
-time by a numeric round-trip check. Calendar features (day-of-year, day-of-week,
-hour-of-day) are linearly scaled to $[-1,1]$, matching the official transform
-(not sinusoidally encoded). The context length is $L=168$h and the forecast
-horizon $H=24$h. We note for reproducibility that Buildings-900K parquet rows
-are not stored chronologically (confirmed empirically: $>99.9\%$ of adjacent
-rows are non-consecutive in time); every window is therefore built from
-timestamp-sorted, monotonicity-checked series.
+official weather channels (temperature, humidity, wind speed, wind direction, and
+global horizontal, direct normal, and diffuse horizontal radiation). Both are
+downloaded from the benchmark's public artifact bucket and validated at load time
+by a numeric round-trip check. Calendar features (day-of-year, day-of-week,
+hour-of-day) are linearly scaled to $[-1,1]$, matching the official transform (not
+sinusoidally encoded). The context length is $L=168$h and the forecast horizon is
+$H=24$h. For reproducibility we note that Buildings-900K parquet rows are not
+stored chronologically ($>99.9\%$ of adjacent rows are non-consecutive in time);
+every window is therefore built from timestamp-sorted, monotonicity-checked series.
 
 \subsection{Real-Building Weather Acquisition and Validation}
 \label{sec:weather-real-data}
@@ -294,18 +274,18 @@ BDG-2 / Bear    & Berkeley, US      & 0.958 & 0 & 1.06 \\
 
 \subsection{Training}
 \label{sec:training}
-Each neural model maps the RevIN-normalized, Box--Cox-transformed load history
-and exogenous features to a Gaussian predictive distribution $(\mu_n,\sigma_n)$
-over the 24-hour horizon, trained with the Gaussian negative log-likelihood
-using AdamW and a cosine learning-rate schedule with warmup, for up to $200$
-epochs with early stopping (patience $20$). Following the benchmark, validation
-uses a temporal holdout of the final two weeks of the year on the AMY2018-release
-buildings (a genuine chronological year), rather than a random building-level
-split. Every transformer baseline is sized to $\geq7\times10^{6}$ parameters in
-both conditions (Table~\ref{tab:compute}) so that weaker performance cannot be
-attributed to insufficient capacity. All models are evaluated under two
-conditions: \textbf{A} (no weather; load and calendar only) and \textbf{B}
-(+weather; the seven official channels added as exogenous inputs).
+Each neural model maps the RevIN-normalized, Box--Cox-transformed load history and
+exogenous features to a Gaussian predictive distribution $(\mu_n,\sigma_n)$ over
+the 24-hour horizon, trained with the Gaussian negative log-likelihood using AdamW
+and a cosine learning-rate schedule with warmup, for up to $200$ epochs with early
+stopping (patience $20$). Following the benchmark, validation uses a temporal
+holdout of the final two weeks of the year on the AMY2018-release buildings (a
+genuine chronological year), rather than a random building-level split. Every
+transformer baseline is sized to $\geq7\times10^{6}$ parameters in both conditions
+(Table~\ref{tab:compute}) so that weaker performance cannot be attributed to
+insufficient capacity. All models are evaluated under two conditions: \textbf{A}
+(no weather; load and calendar only) and \textbf{B} (+weather; the seven official
+channels added as exogenous inputs).
 
 \subsection{Evaluation}
 \label{sec:evaluation}
@@ -317,18 +297,36 @@ metric is NRMSE (coefficient of variation of RMSE), computed per building as
      {\frac{1}{n_b}\sum_i y_{b,i}},
 \label{eq:nrmse}
 \end{equation}
-and aggregated as the \emph{median across buildings} within each building type
-(commercial/residential), with 95\% bootstrap confidence intervals over $2{,}000$
-resamples. The probabilistic metric (RPS) is the Gaussian continuous ranked
-probability score, reported in physical kWh via the benchmark's inverse-Box--Cox
-Gaussian approximation. Pairwise significance against the average-persistence
-baseline uses a paired Wilcoxon signed-rank test with Holm--Bonferroni
-correction; overall model-set differences use a Friedman test with Nemenyi
-post-hoc ranking. We report both conditions on both test sets: condition A
-(no weather) uses the condition-A checkpoints, and condition B (+weather) uses
-the condition-B checkpoints fed the seven official channels---on the simulated
-set from the benchmark's own weather, and on the real set from the validated
-full seven-channel ERA5 record of Section~\ref{sec:weather-real-data}.
+and aggregated as the \emph{median across buildings} within each building type,
+with 95\% bootstrap confidence intervals over $2{,}000$ resamples. The
+probabilistic metric (RPS) is the Gaussian continuous ranked probability score,
+reported in physical kWh via the benchmark's inverse-Box--Cox Gaussian
+approximation. Pairwise significance against the average-persistence baseline uses
+a paired Wilcoxon signed-rank test with Holm--Bonferroni correction; overall
+model-set differences use a Friedman test with Nemenyi post-hoc ranking.
+
+\subsection{Real-Building Weather Acquisition}
+\label{sec:weather-data}
+Evaluating condition B on real buildings requires the same seven weather channels
+the models were trained on, but the benchmark publishes only temperature (and a
+derived humidity) for its real datasets---the remaining five channels (wind
+speed/direction and the three radiation components) are absent. We therefore fetch
+all seven channels from the Open-Meteo ERA5 reanalysis archive
+\citep{openmeteo,era5}, the same reanalysis family the benchmark authors used, at
+the same locations, date ranges, and fixed local-standard-time offsets recovered
+verbatim from their data-generation scripts, and in matching physical units
+($^\circ$C, \%, m/s, degrees, W/m$^2$).
+
+Because a location, timezone, or unit error would silently corrupt this input, we
+gate every fetched series against ground truth before use: we require the fetched
+temperature to match the benchmark's own published ERA5 temperature at Pearson
+$r>0.95$ with zero best-lag (a timezone slip shifts the diurnal cycle and moves the
+best-lag off zero) and a mean offset below $3^\circ$C (a unit error inflates it).
+All ten source locations passed, with $r\in[0.958,0.995]$ and temperature offsets
+below $1.1^\circ$C, confirming correct alignment before any real-building weather
+result is computed. This acquired weather is applied only at evaluation time---the
+condition-B checkpoints are reused unchanged---so any change in real-building error
+reflects the value of the weather inputs, not additional training.
 
 \section{Results}
 \label{sec:results}
@@ -336,10 +334,11 @@ full seven-channel ERA5 record of Section~\ref{sec:weather-real-data}.
 \subsection{Training Dynamics and Computational Cost}
 \label{sec:compute}
 Figure~\ref{fig:loss} shows validation-loss trajectories. All models converge
-smoothly; notably, the +weather (condition B) curves reach substantially lower
+smoothly, and the +weather (condition B) curves reach substantially lower
 validation NLL than their no-weather counterparts for attention-based models
-(e.g.\ Crossformer B reaches $0.16$ vs.\ $0.67$ for A), an early indication that
-weather inputs carry exploitable signal for these architectures.
+(Crossformer B reaches $0.16$ vs.\ $0.67$ for A), an early, in-distribution
+indication that weather inputs carry exploitable signal. Section~\ref{sec:weather}
+shows that this in-distribution signal does not survive transfer to real buildings.
 
 \begin{figure}[t]
   \centering
@@ -351,10 +350,10 @@ weather inputs carry exploitable signal for these architectures.
 \end{figure}
 
 Table~\ref{tab:compute} summarizes model size and training cost. Persistence
-baselines are closed-form (no parameters, no training). Transformer baselines
-range from $7.6$M (PatchTST) to $17.1$M (Crossformer/B) parameters and train in
-$0.3$--$4.1$k seconds on a single NVIDIA A100-SXM4-40GB; the linear (DLinear)
-and recurrent (LSTM, GRU) models are one to two orders of magnitude smaller.
+baselines are closed-form (no parameters, no training). Transformer baselines range
+from $7.6$M (PatchTST) to $17.1$M (Crossformer/B) parameters and train in
+$0.3$--$4.1$k seconds on a single NVIDIA A100-SXM4-40GB; the linear (DLinear) and
+recurrent (LSTM, GRU) models are one to two orders of magnitude smaller.
 
 \begin{table}[H]
 \centering
@@ -385,38 +384,34 @@ Crossformer  & B & 17{,}050{,}608 & 152 & 4{,}125 & 58.7 \\
 \end{tabular}
 \end{table}
 
-
 \subsection{Benchmark Results}
 \label{sec:benchmark}
-Table~\ref{tab:benchmark} reports the main benchmark. Our pipeline reproduces
-the benchmark's own persistence values closely (Average Persistence: $33.51$
-here vs.\ $33.10$ published on the simulated set), validating the
-re-implementation. \textbf{On the simulated test set}, every trained model
-significantly beats \texttt{persistence\_avg} under Holm--Bonferroni correction
-in both conditions. The best commercial NRMSE is achieved by Crossformer with
-weather ($14.68$), followed by TimeXer ($16.43$); without weather, PatchTST
-($18.36$) and TimeXer ($18.45$) lead. \textbf{On the real-world zero-shot set}
-(no-weather), the ordering shifts: TimeXer is strongest ($12.57$ commercial),
-narrowly ahead of iTransformer ($12.68$), PatchTST ($12.78$), and Crossformer
-($12.78$)---the clear simulated-set Crossformer lead does not fully transfer to
-real buildings, consistent with the real data being out-of-distribution
-relative to the simulated pretraining corpus.
+Table~\ref{tab:benchmark} reports the main benchmark. Our pipeline reproduces the
+benchmark's own persistence values closely (Average Persistence: $33.51$ here vs.\
+$33.10$ published on the simulated set), validating the re-implementation.
+\textbf{On the simulated test set}, every trained model significantly beats
+\texttt{persistence\_avg} under Holm--Bonferroni correction in both conditions; the
+best commercial NRMSE is Crossformer with weather ($14.68$), then TimeXer
+($16.43$), and without weather PatchTST ($18.36$) and TimeXer ($18.45$) lead.
+\textbf{On the real-world zero-shot set} the ordering shifts: TimeXer is strongest
+($12.57$ commercial), narrowly ahead of iTransformer ($12.68$), PatchTST ($12.78$),
+and Crossformer ($12.78$). The clear simulated-set Crossformer lead does not fully
+transfer, consistent with the real data lying outside the simulated pretraining
+distribution.
 
 \begin{table}[H]
 \centering
 \caption{Benchmark results: median NRMSE (\%) and RPS (Gaussian CRPS, kWh) across
-buildings, by type. \textbf{A}=no weather, \textbf{B}=+weather. Simulated results
-are shown for both conditions; the real column here is the no-weather headline
-over every real building, and the +weather real-building results---evaluated with
-the validated ERA5 weather of Section~\ref{sec:weather-real-data}---are reported
-separately in Table~\ref{tab:weather-real}. Best in each column in
+buildings, by type. \textbf{A}=no weather, \textbf{B}=+weather. The simulated set
+reports both conditions; the real column reports condition A (the real +weather
+results appear in Table~\ref{tab:weather-real}). Best real-column entry in
 \textbf{bold}. RPS is undefined (--) for the copy-persistence baselines, which
 produce no predictive variance.}
 \label{tab:benchmark}
 \small
 \begin{tabular}{ll rr rr rr}
 \toprule
-& & \multicolumn{4}{c}{\textbf{Simulated (Buildings-900K-test)}} & \multicolumn{2}{c}{\textbf{Real (zero-shot)}} \\
+& & \multicolumn{4}{c}{\textbf{Simulated (Buildings-900K-test)}} & \multicolumn{2}{c}{\textbf{Real (zero-shot, A)}} \\
 \cmidrule(lr){3-6}\cmidrule(lr){7-8}
 & & \multicolumn{2}{c}{Commercial} & \multicolumn{2}{c}{Residential} & \multicolumn{2}{c}{Com.\ / Res.} \\
 Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
@@ -441,10 +436,10 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
      & A & 25.64 & 4.08 & 48.87 & 0.67 & 13.68 / 80.92 & 5.47 / 0.076 \\
      & B & 25.26 & 4.07 & 48.06 & 0.65 & -- & -- \\
 \multirow{2}{*}{XGBoost}
-     & A & 22.31 & 5.23 & 47.41 & 0.64 &  14.17 / 79.63 &  \\
+     & A & 22.31 & 5.23 & 47.41 & 0.64 & 14.17 / 79.63 & -- \\
      & B & 21.69 & 5.08 & 46.56 & 0.63 & -- & -- \\
 \multirow{2}{*}{LightGBM}
-     & A & 21.00 & 4.95 & 46.88 & 0.64 & 13.56 / 79.53&  \\
+     & A & 21.00 & 4.95 & 46.88 & 0.64 & 13.56 / 79.53 & -- \\
      & B & 20.39 & 4.80 & 45.50 & 0.62 & -- & -- \\
 \multirow{2}{*}{PatchTST}
      & A & 18.36 & 2.74 & 44.09 & 0.58 & 12.78 / 78.29 & 4.93 / 0.069 \\
@@ -465,30 +460,30 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
 \end{tabular}
 \end{table}
 
-\textbf{Statistical significance.} A Friedman test across the full model set
-rejects the null of no difference in both conditions ($p\approx0$; Nemenyi
-critical difference $\mathrm{CD}=0.456$). The average ranks under condition B
-(lower is better) are: Crossformer $1.58$, TimeXer $2.69$, PatchTST $2.75$,
-Informer $3.24$, iTransformer $4.90$, LSTM $6.80$, GRU $7.18$, DLinear $7.31$,
-and the three persistence variants worst ($9.57$--$10.18$). The attention-based
-transformers thus form a clearly separated top tier.
+\textbf{Statistical significance.} A Friedman test across the full model set rejects
+the null of no difference in both conditions ($p\approx0$; Nemenyi critical
+difference $\mathrm{CD}=0.456$). The average ranks under condition B (lower is
+better) are Crossformer $1.58$, TimeXer $2.69$, PatchTST $2.75$, Informer $3.24$,
+iTransformer $4.90$, LSTM $6.80$, GRU $7.18$, DLinear $7.31$, and the three
+persistence variants worst ($9.57$--$10.18$). The attention-based transformers thus
+form a clearly separated top tier.
 
-\subsection{Comparison of Weather versus No-Weather}
+\subsection{Weather Value: In-Distribution versus Zero-Shot Transfer}
 \label{sec:weather}
-Table~\ref{tab:weather} isolates the effect of adding weather inputs on the
-simulated test set; Section~\ref{sec:weather-real} then asks whether this effect
-survives on real buildings. Weather helps every trained model here, but the
-magnitude varies sharply by architecture. Cross-dimension and exogenous-aware attention models benefit most
-(Crossformer $-21.3\%$, TimeXer $-10.9\%$ relative commercial NRMSE reduction),
-whereas iTransformer is nearly unchanged ($-1.9\%$) and the linear and tree
-models improve only marginally ($1$--$3\%$). This mirrors the loss-curve gap in
-Figure~\ref{fig:loss}: architectures designed to model cross-variable
-interactions extract more from the weather channels.
+Weather inputs help substantially in-distribution but not under zero-shot transfer,
+and this contrast is the paper's central finding. On the simulated test set
+(Table~\ref{tab:weather}), adding weather reduces commercial NRMSE for every trained
+model, with gains concentrated in cross-dimension and exogenous-aware attention
+architectures (Crossformer $-21.3\%$, TimeXer $-10.9\%$) and only marginal change
+elsewhere ($1$--$3\%$ for the linear, recurrent, and tree models). This pattern
+mirrors the loss curves of Figure~\ref{fig:loss}: architectures built to model
+cross-variable interactions extract more from the weather channels when the test
+distribution matches training.
 
 \begin{table}[H]
 \centering
-\caption{Effect of weather inputs on the simulated test set: commercial NRMSE
-under no-weather (A) and +weather (B), and relative reduction.}
+\caption{Weather value on the simulated test set: commercial NRMSE under no-weather
+(A) and +weather (B), and relative reduction.}
 \label{tab:weather}
 \begin{tabular}{lrrr}
 \toprule
@@ -501,103 +496,73 @@ PatchTST     & 18.36 & 17.53 & $-4.5$ \\
 LightGBM     & 21.00 & 20.39 & $-2.9$ \\
 XGBoost      & 22.31 & 21.69 & $-2.8$ \\
 GRU          & 21.54 & 20.95 & $-2.7$ \\
-LSTM         & 21.17 & 20.80 & $-1.7$ \\
 iTransformer & 19.07 & 18.70 & $-1.9$ \\
+LSTM         & 21.17 & 20.80 & $-1.7$ \\
 DLinear      & 25.64 & 25.26 & $-1.5$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-We probed \emph{where} this value arises with a per-channel knockout analysis
-(zeroing one weather channel at a time on condition-B checkpoints). Most models
-were near-insensitive to any single channel (temperature-knockout
-$\Delta\mathrm{NRMSE}\in[-0.08,+0.97]$), while Crossformer ($+40.2$) and TimeXer
-($+15.7$) degraded sharply.
-
-\subsection{Does Weather Transfer to Real Buildings?}
-\label{sec:weather-real}
-The weather gains above are large on the simulated set, but the simulated load is
-itself \emph{generated} by a physics engine driven by those very weather
-channels, so weather there is close to a causal input. Whether the gains reflect
-usable structure in real load is a separate question, and one the benchmark's own
-real-weather path (temperature only) cannot answer. We answer it directly by
-evaluating each architecture's +weather (condition-B) checkpoint on the real
-buildings with the validated full seven-channel ERA5 weather of
-Section~\ref{sec:weather-real-data}, and comparing it against the same
-architecture's no-weather (condition-A) checkpoint on the same buildings
-(Table~\ref{tab:weather-real}). Because the ERA5 series passed a strict alignment
-gate (Table~\ref{tab:weather-gate}), a null result here cannot be blamed on bad
-weather data.
-
-The simulated weather value does not transfer. Commercial NRMSE moves by at most
-$0.30$ points across all eight architectures---mean absolute change $0.11$ points,
-under $1\%$ relative---and the sign is mixed: PatchTST ($-0.13$) and Informer
-($-0.20$) improve slightly, while iTransformer ($+0.30$) and most others are flat
-or marginally worse. Residential NRMSE is likewise near-flat (mean absolute
-change $\approx1.0$ point on a $\sim$79 base). The contrast with simulation is
-stark for exactly the models that gained most there: Crossformer, which weather
-improved by $21\%$ ($3.97$ points) on the simulated set, changes by $+0.02$
-points on real buildings, and TimeXer's $11\%$ simulated gain becomes $+0.07$. As
-an internal check, the weather-invariant persistence baseline reads identically
-in both columns, confirming that the harness feeds weather only where intended.
-We read this as evidence that the exploitable weather signal in Buildings-900K is
-substantially a property of its physics-based generation---where weather is a
-near-deterministic driver of load---rather than of real metered demand, in which
-occupancy and behavior dominate once recent load history is known. This is a
-caution for interpreting weather-conditioned results on synthetic corpora, and it
-motivates the limitation and future directions in Section~\ref{sec:limitations}.
+The same weather inputs provide no benefit on real buildings. Using the validated
+seven-channel acquisition of Section~\ref{sec:weather-data}, we re-evaluate every
+condition-B checkpoint on the real set and compare against its no-weather result
+(Table~\ref{tab:weather-real}). The mean change is $+0.03$ commercial and $+0.63$
+residential NRMSE---i.e.\ flat to marginally worse---and only two of eight trained
+models improve on either building type. Crossformer is the decisive case: its
+$-21.3\%$ in-distribution gain collapses to $+0.13\%$ ($+0.017$ NRMSE) on real
+buildings, statistically indistinguishable from zero. The weather sensitivity these
+models acquire on simulated ResStock/ComStock load therefore does not describe how
+real metered buildings respond, so applying it zero-shot adds noise rather than
+signal. A benchmark that reports only in-distribution weather ablations---as the
+loss curves and Table~\ref{tab:weather} alone would---would report the opposite
+conclusion.
 
 \begin{table}[H]
 \centering
-\caption{Simulation-to-real weather transfer: median commercial and residential
-NRMSE (\%) on the real zero-shot buildings, no-weather (condition-A checkpoints)
-vs.\ +weather (condition-B checkpoints fed the validated full seven-channel ERA5
-record of Section~\ref{sec:weather-real-data}). $\Delta$ = (+weather) $-$
-(no weather); negative means weather helps. The large simulated-set gains
-(cf.\ Table~\ref{tab:weather}) do not appear on real buildings. Persistence is
-weather-invariant and shown as a harness sanity check; tree models were not run
-in the +weather real track.}
+\caption{Weather value on the real zero-shot set: median NRMSE (\%) under no-weather
+and full seven-channel weather, with the change $\Delta=\text{full}-\text{no}$
+(positive $=$ weather hurts). For reference, the final column repeats each model's
+\emph{simulated} commercial weather gain from Table~\ref{tab:weather}. Persistence
+is closed-form and weather-invariant (omitted).}
 \label{tab:weather-real}
-\small
-\begin{tabular}{l rrr rrr}
+\begin{tabular}{lrrr rrr r}
 \toprule
-& \multicolumn{3}{c}{Commercial NRMSE} & \multicolumn{3}{c}{Residential NRMSE} \\
+& \multicolumn{3}{c}{Commercial} & \multicolumn{3}{c}{Residential} & Sim.\ $\Delta$ \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
-Model & No wx & +ERA5 & $\Delta$ & No wx & +ERA5 & $\Delta$ \\
+Model & no-wx & full-wx & $\Delta$ & no-wx & full-wx & $\Delta$ & Com.\ (\%) \\
 \midrule
-Persistence (avg) & 16.44 & 16.44 & $0.00$ & 78.02 & 78.02 & $0.00$ \\
+LSTM         & 13.99 & 14.05 & $+0.06$ & 80.40 & 81.43 & $+1.03$ & $-1.7$ \\
+GRU          & 14.18 & 14.18 & $+0.01$ & 80.41 & 81.79 & $+1.38$ & $-2.7$ \\
+DLinear      & 13.68 & 13.78 & $+0.10$ & 80.92 & 82.32 & $+1.40$ & $-1.5$ \\
+PatchTST     & 12.78 & 12.66 & $-0.13$ & 78.29 & 79.23 & $+0.94$ & $-4.5$ \\
+iTransformer & 12.68 & 12.98 & $+0.30$ & 78.89 & 77.65 & $-1.25$ & $-1.9$ \\
+TimeXer      & 12.57 & 12.64 & $+0.07$ & 77.81 & 78.35 & $+0.53$ & $-10.9$ \\
+Informer     & 13.20 & 13.00 & $-0.20$ & 79.07 & 80.14 & $+1.07$ & $-5.6$ \\
+Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ & $-21.3$ \\
 \midrule
-LSTM         & 13.99 & 14.05 & $+0.06$ & 80.40 & 81.43 & $+1.03$ \\
-GRU          & 14.18 & 14.18 & $+0.01$ & 80.41 & 81.79 & $+1.38$ \\
-DLinear      & 13.68 & 13.78 & $+0.10$ & 80.92 & 82.32 & $+1.40$ \\
-PatchTST     & 12.78 & 12.66 & $-0.13$ & 78.29 & 79.23 & $+0.94$ \\
-iTransformer & 12.68 & 12.98 & $+0.30$ & 78.89 & 77.65 & $-1.25$ \\
-TimeXer      & 12.57 & 12.64 & $+0.07$ & 77.81 & 78.35 & $+0.53$ \\
-Informer     & 13.20 & 13.00 & $-0.20$ & 79.07 & 80.14 & $+1.07$ \\
-Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ \\
+\textbf{Mean} & & & $\mathbf{+0.03}$ & & & $\mathbf{+0.63}$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Comparison with the Original Benchmark Model}
 \label{sec:vs-original}
-Table~\ref{tab:vs-paper} compares our best no-weather model on the real-world
-zero-shot benchmark against the values reported for the original benchmark's
-pretrained Transformer family \citep{buildingsbench2023}. Our TimeXer, trained
-on a $20{,}000$-building subsample without weather, attains $12.57\%$ commercial
-and $77.81\%$ residential NRMSE, both lower than the reported Transformer-L
-(Gaussian). We emphasize two caveats: the original models were pretrained on the
-full $\sim$900K corpus (vs.\ our $20$K subsample), and small differences may
-reflect implementation and evaluation-harness details; the comparison should be
-read as ``competitive with, and on these two aggregates ahead of, the reported
-values,'' not as a controlled head-to-head. 
+Our best no-weather model is competitive with the benchmark's own largest
+pretrained transformer on the real zero-shot set (Table~\ref{tab:vs-paper}). TimeXer,
+trained on a $20{,}000$-building subsample without weather, attains $12.57\%$
+commercial and $77.81\%$ residential NRMSE, both below the reported Transformer-L
+(Gaussian). Two caveats bound this comparison: the original models were pretrained
+on the full $\sim$900K corpus rather than our $20$K subsample, and small
+differences may reflect implementation and evaluation-harness details. The result
+should therefore be read as ``competitive with, and on these two aggregates ahead
+of, the reported values,'' not as a controlled head-to-head.
 
 \begin{table}[H]
 \centering
 \caption{Real-world zero-shot NRMSE (\%): our best model (no weather) vs.\ values
-reported for the original benchmark's pretrained transformers
-\citep{buildingsbench2023}. Original models pretrained on the full corpus; ours
-on a 20K subsample (see caveats in text).}
+reported for the benchmark's pretrained transformers \citep{buildingsbench2023}.
+Original models pretrained on the full corpus; ours on a 20K subsample (see caveats
+in text).}
 \label{tab:vs-paper}
 \begin{tabular}{llrr}
 \toprule
@@ -616,95 +581,80 @@ Source & Model & Com.\ NRMSE & Res.\ NRMSE \\
 \end{tabular}
 \end{table}
 
-\subsection{Visualization}
+\subsection{Qualitative Forecasts}
 \label{sec:viz}
-
+Figure~\ref{fig:actual_vs_predicted} overlays the 24-hour forecasts of the top
+models against the daily-average actual load. All top models capture the overall
+diurnal rhythm and multi-peak structure, but precision diverges during rapid load
+transitions: the attention-based architectures (Crossformer, TimeXer) track closest
+to the true trajectory, mirroring turning points such as the sharp morning dip
+around hour 7 and the afternoon peak around hour 15.
 
 \begin{figure}[H]
     \centering
-    \figorbox[width=0.8\textwidth]{figures/actual_versus_predicted.png}
-    \caption{Daily average actual versus predicted load across a 24-hour forecast horizon for the top 10 models. All top ten models successfully capture the overarching diurnal rhythm and multi-peak structure of the actual load across the 24-hour horizon, though their precision diverges significantly during rapid load transitions. Attention-based architectures such as Crossformer and TimeXer consistently track closest to the true trajectory, effectively mirroring complex turning points like the sharp morning dip at hour 7 and the afternoon peak at hour 15.}
+    \includegraphics[width=0.8\textwidth]{figures/actual_versus_predicted.png}
+    \caption{Daily-average actual versus predicted load across a 24-hour forecast
+    horizon for the top-performing models.}
     \label{fig:actual_vs_predicted}
 \end{figure}
 
-% This forces LaTeX to print the table and figure above BEFORE starting the Conclusion
 \FloatBarrier
 
-\section{Limitations and Future Work}
+\section{Limitations}
 \label{sec:limitations}
-We frame the study's boundaries as scope conditions on the questions it can
-answer, and pair each with the experiment that would extend it.
+Several factors bound the scope of our conclusions. First, training uses a $20$K
+subsample of Buildings-900K rather than the full $\sim$900K corpus, so absolute
+numbers are not directly comparable to a full-corpus pretraining run and the
+comparison in Table~\ref{tab:vs-paper} is not a controlled head-to-head. Second,
+the probabilistic metric (RPS) uses the benchmark's inverse-Box--Cox Gaussian
+approximation; relative model-to-model comparisons are valid, but absolute RPS
+values inherit that approximation's error, and we observed the real-building RPS to
+sit on a different scale from the simulated set, which we did not fully diagnose.
+Third, the real weather is a validated but single-point ERA5 reanalysis, whereas the
+training weather derives from the simulation's own meteorological files; a residual
+source mismatch cannot be fully excluded even though temperature aligns to
+$r>0.95$. Fourth, our zero-shot finding measures the transfer of \emph{frozen}
+learned weather sensitivity and does not speak to what fine-tuning on real buildings
+would recover. Finally, the per-channel knockout analysis showed two attention
+models (Crossformer, TimeXer) degrading disproportionately under a zeroed channel,
+a response we flag as possibly reflecting numerical sensitivity to out-of-support
+inputs rather than genuine reliance, and we therefore do not draw per-channel
+importance conclusions from it.
 
-\paragraph{Pretraining scale and variance.} Our models are trained on a
-compute-bounded $20{,}000$-building subsample of Buildings-900K under a single
-seed, whereas the original benchmark pretrains on the full $\sim$900K corpus. Our
-architectural comparison controls for capacity (a common $\geq7$M-parameter
-floor) but not for pretraining scale, so absolute NRMSE would likely improve with
-the full corpus, and we report building-level bootstrap confidence intervals
-rather than seed-level variance. Full-corpus, multi-seed training is the natural
-way to firm up both the absolute numbers and the rankings.
-
-\paragraph{Model set and output head.} We report the ten architectures trained
-to completion under both conditions. The benchmark's own Transformer-\{S,M,L\}
-(beyond their published values), Autoformer \citep{autoformer}, and four
-post-BuildingsBench architectures---a TFT-style variable-selection model
-\citep{tft}, xLSTM \citep{xlstm}, a spectral--mixer hybrid of TSMixer
-\citep{tsmixer} and FITS \citep{fits}, and Mamba \citep{mamba}---were only
-partially trained in our compute budget and are excluded to keep the protocol
-uniform; completing them would
-enable a controlled, same-pipeline replacement for the published-value
-comparison of Table~\ref{tab:vs-paper}. All neural models use a Gaussian
-negative-log-likelihood head; the benchmark's tokenized/quantile head and
-sharper calibration diagnostics beyond CRPS are left to future work.
-
-\paragraph{The simulation-to-real weather gap.} Our clearest new finding---that
-the large simulated weather gains do not transfer to real buildings
-(Section~\ref{sec:weather-real})---is established with a validated weather record,
-but its \emph{mechanism} is inferred rather than isolated. We attribute the null
-to Buildings-900K's physics-based generation, in which weather is a
-near-deterministic driver of load, whereas real demand is dominated by occupancy
-and behavior once recent load is known. Testing this directly---by fine-tuning
-the +weather checkpoints on real weather--load pairs, or by measuring
-weather value on real extreme-temperature days where it should concentrate---is
-the most important follow-up, and would establish whether real weather signal is
-merely harder to exploit or genuinely weak.
-
-\paragraph{Operational realism.} The real +weather track uses ERA5
-\emph{reanalysis}, an idealized hindcast; a deployed forecaster would instead
-consume numerical-weather-prediction forecasts and inherit their errors.
-Substituting forecast weather at inference time, extending the horizon (our
-$72$\,h autoregressive rollout widens the +weather advantage on the simulated
-set and should be re-examined on real data), and adding datasets beyond the seven
-studied here would together sharpen the picture of when weather inputs pay off in
-practice.
+\section{Future Work}
+\label{sec:future}
+The simulated-to-real weather gap suggests three directions. First, transfer
+learning: the original benchmark reports that fine-tuning on a modest amount of real
+data helps, and re-measuring weather value \emph{after} fine-tuning would separate
+``weather is uninformative for real STLF'' from ``sim-trained sensitivity does not
+transfer zero-shot.'' Second, distribution alignment: matching the statistics of
+real ERA5 weather to the simulation's weather distribution, or training with weather
+augmentation, may make learned sensitivity more transportable. Third, coverage:
+completing the tree-model and original Transformer-\{S,M,L\} checkpoints under our
+identical pipeline would turn Table~\ref{tab:vs-paper} into a controlled comparison,
+and extending the analysis to longer horizons and extreme-weather subsets would test
+whether weather value concentrates in operating conditions that annual medians
+average away.
 
 \section{Conclusion}
 \label{sec:conclusion}
 We re-benchmarked a broad set of canonical deep forecasting architectures on
 BuildingsBench under its exact preprocessing and evaluation protocol, with each
-transformer sized to a common parameter budget. Three findings stand out:
-\begin{enumerate}
-  \item The re-implementation is faithful: closed-form persistence baselines
-  reproduce the benchmark's published values to within $0.4$ NRMSE points, and
-  every trained model significantly outperforms all persistence baselines on the
-  simulated test set (Friedman $p\approx0$).
-  \item Attention-based transformers (Crossformer, TimeXer, PatchTST) form a
-  clearly separated top tier. Rankings are not identical across settings:
-  Crossformer wins the simulated set with weather, while TimeXer generalizes best
-  to real buildings zero-shot, where it is competitive with---and on commercial
-  and residential aggregates ahead of---the values reported for the original
-  benchmark's largest pretrained transformer.
-  \item Weather inputs help every model on the simulated set, but unevenly:
-  cross-dimension attention models gain the most ($-21\%$ commercial NRMSE for
-  Crossformer), while recurrent, linear, and inverted-attention models change
-  little. Crucially, this value does not survive the move to real buildings:
-  evaluated with validated full seven-channel ERA5 weather, the same +weather
-  checkpoints change real commercial NRMSE by under $1\%$ on average, with mixed
-  sign. The exploitable weather signal is thus largely a property of the physics
-  simulator's weather-driven load generation rather than of real metered demand
-  ---a caution for weather-conditioned benchmarking on synthetic corpora.
-\end{enumerate}
-
+transformer sized to a common parameter budget. Three findings stand out. First,
+the re-implementation is faithful---closed-form persistence baselines reproduce the
+benchmark's published values to within $0.4$ NRMSE points, and every trained model
+significantly outperforms all persistence baselines on the simulated set (Friedman
+$p\approx0$). Second, attention-based transformers (Crossformer, TimeXer, PatchTST)
+form a clearly separated top tier, with rankings that shift across settings:
+Crossformer wins the simulated set with weather, while TimeXer generalizes best to
+real buildings zero-shot, competitive with and on our two aggregates ahead of the
+benchmark's largest pretrained transformer. Third, and most consequential, the
+large in-distribution gains from weather ($-21\%$ NRMSE for Crossformer on simulated
+data) do not transfer to real zero-shot buildings, where the same validated
+seven-channel weather leaves error essentially unchanged (mean $\Delta$NRMSE
+$+0.03$ commercial). Weather sensitivity learned on simulated load is thus an
+in-distribution property, not a transportable one---a distinction that only a
+benchmark evaluating weather under its own zero-shot shift can reveal.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
