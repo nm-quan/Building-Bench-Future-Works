@@ -41,9 +41,10 @@ Crossformer, and DLinear, alongside recurrent (LSTM, GRU) and gradient-boosted
 (XGBoost, LightGBM) baselines---each transformer sized to a common
 $\geq$7M-parameter floor so that capacity is never a confound. Three results
 follow. First, our pipeline reproduces the benchmark's own persistence values to
-within $0.4$ NRMSE points, and on the simulated test set every trained model
-significantly outperforms all three persistence baselines (Friedman $p\approx0$).
-Second, on the seven real-world datasets (1{,}922 buildings, zero-shot), the
+within $0.5$ NRMSE points, and on the simulated test set every trained model
+significantly outperforms the persistence baseline (Holm--Bonferroni-corrected
+Wilcoxon; Friedman $p<0.001$ across the model set).
+Second, on the seven real-world datasets (1{,}923 buildings, zero-shot), the
 strongest model (TimeXer, $12.57\%$ commercial NRMSE) surpasses the value reported
 for the benchmark's largest pretrained transformer. Third, and most striking,
 weather inputs that yield large gains in-distribution---up to $-21\%$ NRMSE for
@@ -86,7 +87,7 @@ does not transfer to real buildings. Concretely, this paper contributes:
   \item \textbf{A faithful re-implementation} of BuildingsBench preprocessing, the
   temporal train/validation split, and median-aggregated NRMSE/RPS metrics,
   verified by reproducing the benchmark's own persistence baselines to within
-  $0.4$ NRMSE points (Section~\ref{sec:benchmark}).
+  $0.5$ NRMSE points (Section~\ref{sec:benchmark}).
   \item \textbf{A broad benchmark} of canonical deep forecasters (PatchTST,
   iTransformer, TimeXer, Informer, Crossformer, DLinear) and classical baselines
   (LSTM, GRU, XGBoost, LightGBM), each transformer sized to a common
@@ -141,7 +142,7 @@ differences, not capacity, drive the comparison.
 We train on a compute-bounded subsample of $N=20{,}000$ buildings from
 Buildings-900K, drawn via the official weekly-sampled index file, and evaluate on
 two held-out sets: (i) the official \emph{Buildings-900K-test} simulated split
-($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}922$ buildings
+($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}923$ buildings
 ($970$ commercial, $953$ residential) pooled from seven open datasets (BDG-2,
 Borealis, Electricity, IDEAL, LCL, SMART, Sceaux). Multi-year files of the same
 physical building are concatenated into one continuous series, matching the
@@ -319,11 +320,14 @@ distribution.
 \begin{table}[H]
 \centering
 \caption{Benchmark results: median NRMSE (\%) and RPS (Gaussian CRPS, kWh) across
-buildings, by type. \textbf{A}=no weather, \textbf{B}=+weather. The simulated set
-reports both conditions; the real column reports condition A (the real +weather
-results appear in Table~\ref{tab:weather-real}). Best real-column entry in
-\textbf{bold}. RPS is undefined (--) for the copy-persistence baselines, which
-produce no predictive variance.}
+buildings, by type; lower is better for both metrics. \textbf{A}=no weather,
+\textbf{B}=+weather. Real condition-B
+NRMSE is the validated seven-channel weather result of
+Table~\ref{tab:weather-real}, repeated here for completeness; it is available only
+for the neural models (the tree models were not run with real weather, and
+persistence is weather-invariant). Best real condition-A entry in \textbf{bold}.
+RPS is undefined (--) for the copy-persistence baselines (no predictive variance)
+and was not computed for the tree models or on the real set under weather.}
 \label{tab:benchmark}
 \small
 \begin{tabular}{ll rr rr rr}
@@ -345,13 +349,13 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
 \midrule
 \multirow{2}{*}{LSTM}
      & A & 21.17 & 3.66 & 47.44 & 0.62 & 13.99 / 80.40 & 5.60 / 0.071 \\
-     & B & 20.80 & 3.64 & 46.07 & 0.59 & -- & -- \\
+     & B & 20.80 & 3.64 & 46.07 & 0.59 & 14.05 / 81.43 & -- \\
 \multirow{2}{*}{GRU}
      & A & 21.54 & 3.74 & 47.42 & 0.62 & 14.18 / 80.41 & 5.65 / 0.071 \\
-     & B & 20.95 & 3.67 & 46.34 & 0.60 & -- & -- \\
+     & B & 20.95 & 3.67 & 46.34 & 0.60 & 14.18 / 81.79 & -- \\
 \multirow{2}{*}{DLinear}
      & A & 25.64 & 4.08 & 48.87 & 0.67 & 13.68 / 80.92 & 5.47 / 0.076 \\
-     & B & 25.26 & 4.07 & 48.06 & 0.65 & -- & -- \\
+     & B & 25.26 & 4.07 & 48.06 & 0.65 & 13.78 / 82.32 & -- \\
 \multirow{2}{*}{XGBoost}
      & A & 22.31 & 5.23 & 47.41 & 0.64 & 14.17 / 79.63 & -- \\
      & B & 21.69 & 5.08 & 46.56 & 0.63 & -- & -- \\
@@ -360,25 +364,25 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
      & B & 20.39 & 4.80 & 45.50 & 0.62 & -- & -- \\
 \multirow{2}{*}{PatchTST}
      & A & 18.36 & 2.74 & 44.09 & 0.58 & 12.78 / 78.29 & 4.93 / 0.069 \\
-     & B & 17.53 & 2.55 & 42.15 & 0.55 & -- & -- \\
+     & B & 17.53 & 2.55 & 42.15 & 0.55 & 12.66 / 79.23 & -- \\
 \multirow{2}{*}{iTransformer}
      & A & 19.07 & 3.00 & 45.53 & 0.59 & 12.68 / 78.89 & 4.96 / 0.069 \\
-     & B & 18.70 & 3.10 & 44.54 & 0.58 & -- & -- \\
+     & B & 18.70 & 3.10 & 44.54 & 0.58 & 12.98 / 77.65 & -- \\
 \multirow{2}{*}{TimeXer}
      & A & 18.45 & 2.71 & 44.03 & 0.57 & \textbf{12.57} / \textbf{77.81} & 4.83 / 0.067 \\
-     & B & 16.43 & 2.46 & 41.22 & 0.52 & -- & -- \\
+     & B & 16.43 & 2.46 & 41.22 & 0.52 & 12.64 / 78.35 & -- \\
 \multirow{2}{*}{Informer}
      & A & 18.59 & 2.84 & 44.37 & 0.58 & 13.20 / 79.07 & 5.06 / 0.069 \\
-     & B & 17.54 & 2.61 & 42.32 & 0.55 & -- & -- \\
+     & B & 17.54 & 2.61 & 42.32 & 0.55 & 13.00 / 80.14 & -- \\
 \multirow{2}{*}{Crossformer}
      & A & 18.65 & 2.85 & 44.49 & 0.58 & 12.78 / 78.67 & 4.88 / 0.068 \\
-     & B & \textbf{14.68} & \textbf{2.18} & \textbf{40.33} & \textbf{0.50} & -- & -- \\
+     & B & \textbf{14.68} & \textbf{2.18} & \textbf{40.33} & \textbf{0.50} & 12.80 / 78.65 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \textbf{Statistical significance.} A Friedman test across the full model set rejects
-the null of no difference in both conditions ($p\approx0$; Nemenyi critical
+the null of no difference in both conditions ($p<0.001$; Nemenyi critical
 difference $\mathrm{CD}=0.456$). The average ranks under condition B (lower is
 better) are Crossformer $1.58$, TimeXer $2.69$, PatchTST $2.75$, Informer $3.24$,
 iTransformer $4.90$, LSTM $6.80$, GRU $7.18$, DLinear $7.31$, and the three
@@ -399,8 +403,9 @@ distribution matches training.
 
 \begin{table}[H]
 \centering
-\caption{Weather value on the simulated test set: commercial NRMSE under no-weather
-(A) and +weather (B), and relative reduction.}
+\caption{Weather value on the simulated test set: commercial NRMSE (\%, lower is
+better) under no-weather (A) and +weather (B), and relative reduction (more negative
+$=$ larger gain). Sorted by gain.}
 \label{tab:weather}
 \begin{tabular}{lrrr}
 \toprule
@@ -424,8 +429,9 @@ The same weather inputs provide no benefit on real buildings. Using the validate
 seven-channel acquisition of Section~\ref{sec:weather-data}, we re-evaluate every
 condition-B checkpoint on the real set and compare against its no-weather result
 (Table~\ref{tab:weather-real}). The mean change is $+0.03$ commercial and $+0.63$
-residential NRMSE---i.e.\ flat to marginally worse---and only two of eight trained
-models improve on either building type. Crossformer is the decisive case: its
+residential NRMSE---i.e.\ flat to marginally worse---no model improves on both
+building types, and the largest single-model reduction is only $1.25$ NRMSE points
+(iTransformer, residential). Crossformer is the decisive case: its
 $-21.3\%$ in-distribution gain collapses to $+0.13\%$ ($+0.017$ NRMSE) on real
 buildings, statistically indistinguishable from zero. The weather sensitivity these
 models acquire on simulated ResStock/ComStock load therefore does not describe how
@@ -438,9 +444,10 @@ conclusion.
 \centering
 \caption{Weather value on the real zero-shot set: median NRMSE (\%) under no-weather
 and full seven-channel weather, with the change $\Delta=\text{full}-\text{no}$
-(positive $=$ weather hurts). For reference, the final column repeats each model's
-\emph{simulated} commercial weather gain from Table~\ref{tab:weather}. Persistence
-is closed-form and weather-invariant (omitted).}
+(positive $=$ weather hurts). Deltas are computed from unrounded values and may
+differ from the rounded columns by up to $0.01$. For reference, the final column
+repeats each model's \emph{simulated} commercial weather gain from
+Table~\ref{tab:weather}. Persistence is closed-form and weather-invariant (omitted).}
 \label{tab:weather-real}
 \begin{tabular}{lrrr rrr r}
 \toprule
@@ -476,8 +483,9 @@ of, the reported values,'' not as a controlled head-to-head.
 
 \begin{table}[H]
 \centering
-\caption{Real-world zero-shot NRMSE (\%): our best model (no weather) vs.\ values
-reported for the benchmark's pretrained transformers \citep{buildingsbench2023}.
+\caption{Real-world zero-shot NRMSE (\%, lower is better): our best model (no
+weather) vs.\ values reported for the benchmark's pretrained transformers
+\citep{buildingsbench2023}.
 Original models pretrained on the full corpus; ours on a 20K subsample (see caveats
 in text).}
 \label{tab:vs-paper}
@@ -559,9 +567,9 @@ We re-benchmarked a broad set of canonical deep forecasting architectures on
 BuildingsBench under its exact preprocessing and evaluation protocol, with each
 transformer sized to a common parameter budget. Three findings stand out. First,
 the re-implementation is faithful---closed-form persistence baselines reproduce the
-benchmark's published values to within $0.4$ NRMSE points, and every trained model
-significantly outperforms all persistence baselines on the simulated set (Friedman
-$p\approx0$). Second, attention-based transformers (Crossformer, TimeXer, PatchTST)
+benchmark's published values to within $0.5$ NRMSE points, and every trained model
+significantly outperforms the persistence baseline on the simulated set (Friedman
+$p<0.001$ across the model set). Second, attention-based transformers (Crossformer, TimeXer, PatchTST)
 form a clearly separated top tier, with rankings that shift across settings:
 Crossformer wins the simulated set with weather, while TimeXer generalizes best to
 real buildings zero-shot, competitive with and on our two aggregates ahead of the
