@@ -202,8 +202,11 @@ per-building level and scale that would otherwise dominate zero-shot transfer:
 \label{eq:revin}
 \end{equation}
 and the predicted distribution is de-normalized as
-$\hat{\mu}=\mu_{\mathrm n}\,\sigma_w+\mu_w$ and
-$\hat{\sigma}=\big(\mathrm{softplus}(s_{\mathrm n})+10^{-3}\big)\,\sigma_w$,
+\begin{equation}
+\hat{\mu}=\mu_{\mathrm n}\,\sigma_w+\mu_w,\qquad
+\hat{\sigma}=\big(\mathrm{softplus}(s_{\mathrm n})+10^{-3}\big)\,\sigma_w,
+\label{eq:denorm}
+\end{equation}
 where $(\mu_{\mathrm n},s_{\mathrm n})$ are the network outputs. Following the
 benchmark, validation is a temporal holdout of the final two weeks of the year on
 the AMY2018-release buildings (a genuine chronological year), rather than a
