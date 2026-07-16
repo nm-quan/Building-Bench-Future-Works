@@ -415,10 +415,7 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
      & B & \textbf{14.68} & \textbf{2.18} & \textbf{40.33} & \textbf{0.50} & 12.80 / 78.65 & 4.86 / 0.067 \\
 \bottomrule
 \end{tabular}
-\caption{Median NRMSE (\%) and RPS (kWh) by building type; lower is better.
-A: without weather; B: with weather (real condition-B uses the weather of
-Section~\ref{sec:weather-data}). Best simulated condition-B and real
-condition-A entries in bold; --: unavailable.}
+\caption{Models Benchmark median NRMSE (\%) and RPS (kWh) by building type. }
 \label{tab:benchmark}
 \end{table}
 
@@ -544,7 +541,7 @@ reference, not a controlled head-to-head.
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
 Model & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
 \midrule
-\multicolumn{9}{l}{\emph{Original benchmark \citep{buildingsbench2023}, full-corpus pretraining}} \\
+\multicolumn{9}{l}{\emph{Original benchmark \citep{buildingsbench2023}, 900K Buildings}} \\
 Persistence Ensemble      & 33.10 & 4.58 & 54.77 & 0.72  & 16.68 & 5.88 & 77.88 & \textbf{0.063} \\
 Previous Day Persistence  & 34.91 & --   & 59.38 & --    & 16.96 & --   & 98.41 & --    \\
 Previous Week Persistence & 32.05 & --   & 74.08 & --    & 19.39 & --   & 99.77 & --    \\
@@ -565,8 +562,7 @@ Crossformer               & 14.68 & 2.18 & \textbf{40.33} & \textbf{0.50}  & 12.
 TimeXer                   & 16.43 & 2.46 & 41.22 & 0.52  & 12.64 & 4.84 & 78.35 & 0.067 \\
 \bottomrule
 \end{tabular}
-\caption{Comparison with the original benchmark: median NRMSE (\%) and RPS,
-lower is better. Best value per column in bold; --: not published or undefined.}
+\caption{Comparison with the original benchmark}
 \label{tab:vs-paper}
 \end{table}
 
