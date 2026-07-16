@@ -269,36 +269,6 @@ functions; it is reported in physical kWh by passing $\mu\pm\sigma$ through the
 inverse Box--Cox transform and averaging the two half-widths (the benchmark's own
 Gaussian approximation).
 
-\paragraph{Statistical testing.}
-Per-building errors are paired across models (every model is scored on the same
-buildings) and far from Gaussian, so we follow the standard rank-based protocol
-for comparing learners over many datasets \citep{demsar2006}. Whether a model
-beats the average-persistence baseline is tested with the Wilcoxon signed-rank
-test \citep{wilcoxon1945}: with per-building differences
-$d_b=\mathrm{NRMSE}^{\mathrm{base}}_b-\mathrm{NRMSE}^{\mathrm{model}}_b$,
-\begin{equation}
-W=\min\big(W^{+},W^{-}\big),\qquad
-W^{\pm}=\sum_{b:\,\operatorname{sign}(d_b)=\pm 1}\operatorname{rank}\big(|d_b|\big),
-\label{eq:wilcoxon}
-\end{equation}
-which uses only signs and ranks and is therefore robust to the heavy-tailed
-per-building errors. Because many models are tested against the same baseline,
-the resulting $p$-values are Holm--Bonferroni corrected \citep{holm1979}: with
-ordered $p_{(1)}\le\cdots\le p_{(m)}$, hypothesis $i$ is rejected while
-$p_{(i)}\le\alpha/(m-i+1)$, which controls the family-wise error rate without
-Bonferroni's full conservativeness. Whether the model set differs \emph{overall}
-is tested with the Friedman test \citep{friedman1937}, which ranks the $k$
-models on each of the $N$ buildings and rejects when
-\begin{equation}
-\chi^{2}_{F}=\frac{12N}{k(k+1)}\left[\sum_{j=1}^{k}\bar{R}_{j}^{2}
--\frac{k(k+1)^{2}}{4}\right]
-\label{eq:friedman}
-\end{equation}
-is large, where $\bar{R}_{j}$ is model $j$'s average rank. When it rejects, the
-Nemenyi post-hoc test \citep{demsar2006} determines \emph{which} models differ:
-two models are significantly different if their average ranks differ by at least
-the critical difference $\mathrm{CD}=q_{\alpha}\sqrt{k(k+1)/(6N)}$.
-
 \subsection{Real-Building Weather Acquisition}
 \label{sec:weather-data}
 Evaluating condition B on real buildings requires the same seven weather channels
@@ -381,8 +351,8 @@ B: with weather.}
 Table~\ref{tab:benchmark} reports the main benchmark. Our pipeline reproduces the
 benchmark's own persistence values closely (Average Persistence: $33.51$ here vs.\
 $33.10$ published on the simulated set), validating the re-implementation.
-\textbf{On the simulated test set}, every trained model significantly beats
-\texttt{persistence\_avg} under Holm--Bonferroni correction in both conditions; the
+\textbf{On the simulated test set}, every trained model beats all three
+persistence baselines by a wide margin in both conditions; the
 best commercial NRMSE is Crossformer with weather ($14.68$), then TimeXer
 ($16.43$), and without weather PatchTST ($18.36$) and TimeXer ($18.45$) lead.
 \textbf{On the real-world zero-shot set} the ordering shifts: TimeXer is strongest
@@ -447,12 +417,10 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
 \label{tab:benchmark}
 \end{table}
 
-\textbf{Statistical significance.} A Friedman test across the full model set rejects
-the null of no difference in both conditions ($p<0.001$; Nemenyi critical
-difference $\mathrm{CD}=0.456$). The average ranks under condition B (lower is
-better) are Crossformer $1.58$, TimeXer $2.69$, PatchTST $2.75$, Informer $3.24$,
+Ranking the models per building and averaging (condition B, lower is better)
+gives Crossformer $1.58$, TimeXer $2.69$, PatchTST $2.75$, Informer $3.24$,
 iTransformer $4.90$, LSTM $6.80$, GRU $7.18$, DLinear $7.31$, and the three
-persistence variants worst ($9.57$--$10.18$). The attention-based transformers thus
+persistence variants worst ($9.57$--$10.18$): the attention-based transformers
 form a clearly separated top tier.
 
 \subsection{Weather Value: In-Distribution versus Zero-Shot Transfer}
@@ -657,8 +625,8 @@ BuildingsBench under its exact preprocessing and evaluation protocol, with each
 transformer sized to a common parameter budget. Three findings stand out. First,
 the re-implementation is faithful closed-form persistence baselines reproduce the
 benchmark's published values to within $0.5$ NRMSE points, and every trained model
-significantly outperforms the persistence baseline on the simulated set (Friedman
-$p<0.001$ across the model set). Second, attention-based transformers (Crossformer, TimeXer, PatchTST)
+outperforms every persistence baseline on the simulated
+set. Second, attention-based transformers (Crossformer, TimeXer, PatchTST)
 form a clearly separated top tier, with rankings that shift across settings:
 Crossformer wins the simulated set with weather, while TimeXer generalizes best to
 real buildings zero-shot, competitive with and on our two aggregates ahead of the

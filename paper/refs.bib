@@ -1,30 +1,41 @@
 % ---------------------------------------------------------------------------
-% Bibliography for "Benchmarking Canonical Deep Forecasters on BuildingsBench".
-% Numbered style (natbib [numbers]) -> references render as [1], [2], ...
-% NOTE: verify author lists, venues, and page numbers against the published
-% record before camera-ready; a few fields are filled from recall.
+% Bibliography. Numbered style (natbib [numbers]) -> renders as [1], [2], ...
+%
+% Provenance: entries were verified against each project's OFFICIAL citation
+% (the bibtex block published in the authors' own repository README), the
+% peer-reviewed BuildingsBench paper's reference list, or the benchmark's
+% public leaderboard. Fields that could not be verified online from this
+% environment are marked "% UNVERIFIED:" inline -- check those before
+% camera-ready.
 % ---------------------------------------------------------------------------
 
-@inproceedings{buildingsbench2023,
-  author    = {Emami, Patrick and Sahu, Abhijeet and Graf, Peter},
-  title     = {{BuildingsBench}: A Large-Scale Dataset of 900{K} Buildings and
-               Benchmark for Short-Term Load Forecasting},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS),
-               Datasets and Benchmarks Track},
-  year      = {2023},
-  eprint    = {2307.00142},
+% Official citation from github.com/NatLabRockies/BuildingsBench README.
+@article{buildingsbench2023,
+  author  = {Emami, Patrick and Sahu, Abhijeet and Graf, Peter},
+  title   = {{BuildingsBench}: A Large-Scale Dataset of 900{K} Buildings and
+             Benchmark for Short-Term Load Forecasting},
+  journal = {Advances in Neural Information Processing Systems},
+  volume  = {36},
+  pages   = {19823--19857},
+  year    = {2023},
+  eprint  = {2307.00142},
   archivePrefix = {arXiv},
 }
 
+% Official citation from github.com/yuqinie98/PatchTST README; venue also
+% confirmed by the BuildingsBench paper's reference list.
 @inproceedings{patchtst,
   author    = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and
                Kalagnanam, Jayant},
-  title     = {A Time Series is Worth 64 Words: Long-Term Forecasting with
+  title     = {A Time Series is Worth 64 Words: Long-term Forecasting with
                Transformers},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2023},
 }
 
+% eprint verified from github.com/thuml/iTransformer README.
+% UNVERIFIED: the README cites the arXiv preprint; ICLR 2024 is the accepted
+% venue to our knowledge but could not be confirmed online from here.
 @inproceedings{itransformer,
   author    = {Liu, Yong and Hu, Tengge and Zhang, Haoran and Wu, Haixu and
                Wang, Shiyu and Ma, Lintao and Long, Mingsheng},
@@ -32,8 +43,11 @@
                Series Forecasting},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2024},
+  eprint    = {2310.06625},
+  archivePrefix = {arXiv},
 }
 
+% Official citation from github.com/thuml/TimeXer README (NeurIPS 2024).
 @inproceedings{timexer,
   author    = {Wang, Yuxuan and Wu, Haixu and Dong, Jiaxiang and Liu, Yong and
                Qiu, Yunzhong and Zhang, Haoran and Wang, Jianmin and
@@ -44,16 +58,22 @@
   year      = {2024},
 }
 
+% Official citation from github.com/zhouhaoyi/Informer2020 README
+% (incl. volume/number/pages/publisher).
 @inproceedings{informer,
   author    = {Zhou, Haoyi and Zhang, Shanghang and Peng, Jieqi and Zhang, Shuai
                and Li, Jianxin and Xiong, Hui and Zhang, Wancai},
   title     = {{Informer}: Beyond Efficient Transformer for Long Sequence
                Time-Series Forecasting},
   booktitle = {AAAI Conference on Artificial Intelligence},
-  year      = {2021},
+  volume    = {35},
+  number    = {12},
   pages     = {11106--11115},
+  publisher = {{AAAI} Press},
+  year      = {2021},
 }
 
+% Official citation from github.com/Thinklab-SJTU/Crossformer readme.
 @inproceedings{crossformer,
   author    = {Zhang, Yunhao and Yan, Junchi},
   title     = {{Crossformer}: Transformer Utilizing Cross-Dimension Dependency
@@ -62,64 +82,33 @@
   year      = {2023},
 }
 
+% Venue from the official github.com/cure-lab/LTSF-Linear README (AAAI 2023);
+% eprint confirmed by the BuildingsBench paper's reference list.
 @inproceedings{dlinear,
   author    = {Zeng, Ailing and Chen, Muxi and Zhang, Lei and Xu, Qiang},
   title     = {Are Transformers Effective for Time Series Forecasting?},
   booktitle = {AAAI Conference on Artificial Intelligence},
   year      = {2023},
-  pages     = {11121--11128},
+  eprint    = {2205.13504},
+  archivePrefix = {arXiv},
 }
 
-@article{wilcoxon1945,
-  author    = {Wilcoxon, Frank},
-  title     = {Individual Comparisons by Ranking Methods},
-  journal   = {Biometrics Bulletin},
-  volume    = {1},
-  number    = {6},
-  pages     = {80--83},
-  year      = {1945},
-}
-
-@article{holm1979,
-  author    = {Holm, Sture},
-  title     = {A Simple Sequentially Rejective Multiple Test Procedure},
-  journal   = {Scandinavian Journal of Statistics},
-  volume    = {6},
-  number    = {2},
-  pages     = {65--70},
-  year      = {1979},
-}
-
-@article{friedman1937,
-  author    = {Friedman, Milton},
-  title     = {The Use of Ranks to Avoid the Assumption of Normality Implicit
-               in the Analysis of Variance},
-  journal   = {Journal of the American Statistical Association},
-  volume    = {32},
-  number    = {200},
-  pages     = {675--701},
-  year      = {1937},
-}
-
-@article{demsar2006,
-  author    = {Dem{\v{s}}ar, Janez},
-  title     = {Statistical Comparisons of Classifiers over Multiple Data Sets},
-  journal   = {Journal of Machine Learning Research},
-  volume    = {7},
-  pages     = {1--30},
-  year      = {2006},
-}
-
+% UNVERIFIED: pages and DOI from memory (the 211--243 range is the article
+% proper; some sources cite 211--252 including the discussion).
 @article{boxcox1964,
-  author    = {Box, George E. P. and Cox, David R.},
-  title     = {An Analysis of Transformations},
-  journal   = {Journal of the Royal Statistical Society: Series B (Methodological)},
-  volume    = {26},
-  number    = {2},
-  pages     = {211--243},
-  year      = {1964},
+  author  = {Box, George E. P. and Cox, David R.},
+  title   = {An Analysis of Transformations},
+  journal = {Journal of the Royal Statistical Society: Series B (Methodological)},
+  volume  = {26},
+  number  = {2},
+  pages   = {211--243},
+  year    = {1964},
+  doi     = {10.1111/j.2517-6161.1964.tb00553.x},
 }
 
+% OpenReview URL verified from github.com/ts-kim/RevIN README.
+% UNVERIFIED: that README's bibtex says year 2021, but the OpenReview forum
+% (cGDAkQo1C0p) is the ICLR 2022 track, which is the standard citation year.
 @inproceedings{revin,
   author    = {Kim, Taesung and Kim, Jinhee and Tae, Yunwon and Park, Cheonbok
                and Choi, Jang-Ho and Choo, Jaegul},
@@ -127,18 +116,22 @@
                Forecasting against Distribution Shift},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2022},
+  url       = {https://openreview.net/forum?id=cGDAkQo1C0p},
 }
 
+% UNVERIFIED: volume/number/pages/DOI from memory.
 @article{gneiting2007,
-  author    = {Gneiting, Tilmann and Raftery, Adrian E.},
-  title     = {Strictly Proper Scoring Rules, Prediction, and Estimation},
-  journal   = {Journal of the American Statistical Association},
-  volume    = {102},
-  number    = {477},
-  pages     = {359--378},
-  year      = {2007},
+  author  = {Gneiting, Tilmann and Raftery, Adrian E.},
+  title   = {Strictly Proper Scoring Rules, Prediction, and Estimation},
+  journal = {Journal of the American Statistical Association},
+  volume  = {102},
+  number  = {477},
+  pages   = {359--378},
+  year    = {2007},
+  doi     = {10.1198/016214506000001437},
 }
 
+% Verified against the BuildingsBench paper's reference list (its ref [26]).
 @inproceedings{adamw,
   author    = {Loshchilov, Ilya and Hutter, Frank},
   title     = {Decoupled Weight Decay Regularization},
@@ -146,23 +139,26 @@
   year      = {2019},
 }
 
+% UNVERIFIED: volume/number/pages/DOI from memory (the standard ERA5 citation).
 @article{era5,
-  author    = {Hersbach, Hans and Bell, Bill and Berrisford, Paul and
-               Hirahara, Shoji and Hor{\'a}nyi, Andr{\'a}s and
-               Mu{\~n}oz-Sabater, Joaqu{\'i}n and others},
-  title     = {The {ERA5} Global Reanalysis},
-  journal   = {Quarterly Journal of the Royal Meteorological Society},
-  volume    = {146},
-  number    = {730},
-  pages     = {1999--2049},
-  year      = {2020},
-  publisher = {Wiley},
+  author  = {Hersbach, Hans and Bell, Bill and Berrisford, Paul and
+             Hirahara, Shoji and Hor{\'a}nyi, Andr{\'a}s and
+             Mu{\~n}oz-Sabater, Joaqu{\'i}n and others},
+  title   = {The {ERA5} Global Reanalysis},
+  journal = {Quarterly Journal of the Royal Meteorological Society},
+  volume  = {146},
+  number  = {730},
+  pages   = {1999--2049},
+  year    = {2020},
+  doi     = {10.1002/qj.3803},
 }
 
+% Zenodo DOI verified from the github.com/open-meteo/open-meteo README badge.
 @misc{openmeteo,
   author       = {{Open-Meteo}},
-  title        = {Open-Meteo Historical Weather {API} ({ERA5} Reanalysis Archive)},
+  title        = {Open-Meteo.com Weather {API} ({ERA5} Reanalysis Archive)},
   howpublished = {\url{https://open-meteo.com/en/docs/historical-weather-api}},
+  doi          = {10.5281/zenodo.7970649},
   note         = {Accessed 2026},
   year         = {2023},
 }
