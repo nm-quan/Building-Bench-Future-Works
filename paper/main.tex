@@ -207,7 +207,9 @@ and the predicted distribution is de-normalized as
 \hat{\sigma}=\big(\mathrm{softplus}(s_{\mathrm n})+10^{-3}\big)\,\sigma_w,
 \label{eq:denorm}
 \end{equation}
-where $(\mu_{\mathrm n},s_{\mathrm n})$ are the network outputs. Following the
+where $(\mu_{\mathrm n},s_{\mathrm n})$ are the network outputs and
+$\mathrm{softplus}(x)=\log\!\left(1+e^{x}\right)$ maps the unconstrained output
+$s_{\mathrm n}$ to a strictly positive standard deviation. Following the
 benchmark, validation is a temporal holdout of the final two weeks of the year on
 the AMY2018-release buildings (a genuine chronological year), rather than a
 random building-level split.
