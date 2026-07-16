@@ -267,9 +267,37 @@ of the Gaussian forecast \citep{gneiting2007},
 where $\Phi$ and $\varphi$ are the standard normal distribution and density
 functions; it is reported in physical kWh by passing $\mu\pm\sigma$ through the
 inverse Box--Cox transform and averaging the two half-widths (the benchmark's own
-Gaussian approximation). Pairwise significance against the average-persistence baseline uses
-a paired Wilcoxon signed-rank test with Holm--Bonferroni correction; overall
-model-set differences use a Friedman test with Nemenyi post-hoc ranking.
+Gaussian approximation).
+
+\paragraph{Statistical testing.}
+Per-building errors are paired across models (every model is scored on the same
+buildings) and far from Gaussian, so we follow the standard rank-based protocol
+for comparing learners over many datasets \citep{demsar2006}. Whether a model
+beats the average-persistence baseline is tested with the Wilcoxon signed-rank
+test \citep{wilcoxon1945}: with per-building differences
+$d_b=\mathrm{NRMSE}^{\mathrm{base}}_b-\mathrm{NRMSE}^{\mathrm{model}}_b$,
+\begin{equation}
+W=\min\big(W^{+},W^{-}\big),\qquad
+W^{\pm}=\sum_{b:\,\operatorname{sign}(d_b)=\pm 1}\operatorname{rank}\big(|d_b|\big),
+\label{eq:wilcoxon}
+\end{equation}
+which uses only signs and ranks and is therefore robust to the heavy-tailed
+per-building errors. Because many models are tested against the same baseline,
+the resulting $p$-values are Holm--Bonferroni corrected \citep{holm1979}: with
+ordered $p_{(1)}\le\cdots\le p_{(m)}$, hypothesis $i$ is rejected while
+$p_{(i)}\le\alpha/(m-i+1)$, which controls the family-wise error rate without
+Bonferroni's full conservativeness. Whether the model set differs \emph{overall}
+is tested with the Friedman test \citep{friedman1937}, which ranks the $k$
+models on each of the $N$ buildings and rejects when
+\begin{equation}
+\chi^{2}_{F}=\frac{12N}{k(k+1)}\left[\sum_{j=1}^{k}\bar{R}_{j}^{2}
+-\frac{k(k+1)^{2}}{4}\right]
+\label{eq:friedman}
+\end{equation}
+is large, where $\bar{R}_{j}$ is model $j$'s average rank. When it rejects, the
+Nemenyi post-hoc test \citep{demsar2006} determines \emph{which} models differ:
+two models are significantly different if their average ranks differ by at least
+the critical difference $\mathrm{CD}=q_{\alpha}\sqrt{k(k+1)/(6N)}$.
 
 \subsection{Real-Building Weather Acquisition}
 \label{sec:weather-data}
@@ -457,8 +485,8 @@ LSTM         & 21.17 & 20.80 & $-1.7$ \\
 DLinear      & 25.64 & 25.26 & $-1.5$ \\
 \bottomrule
 \end{tabular}
-\caption{Commercial NRMSE (\%) on the simulated test set without and with
-weather, sorted by relative change.}
+\caption{Commercial NRMSE (\%) on the simulated test set; lower is better.
+Change: relative reduction from adding weather; best entry in bold.}
 \label{tab:weather}
 \end{table}
 
@@ -481,29 +509,28 @@ conclusion.
 \centering
 \small
 \setlength{\tabcolsep}{5pt}
-\begin{tabular}{lrrr rrr r}
+\begin{tabular}{lrrr rrr}
 \toprule
-& \multicolumn{3}{c}{Commercial} & \multicolumn{3}{c}{Residential} & Simulated \\
+& \multicolumn{3}{c}{Commercial} & \multicolumn{3}{c}{Residential} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
-Model & No weather & Weather & Change & No weather & Weather & Change & Com.\ (\%) \\
+Model & No weather & Weather & Change & No weather & Weather & Change \\
 \midrule
-LSTM         & 13.99 & 14.05 & $+0.06$ & 80.40 & 81.43 & $+1.03$ & $-1.7$ \\
-GRU          & 14.18 & 14.18 & $+0.01$ & 80.41 & 81.79 & $+1.38$ & $-2.7$ \\
-DLinear      & 13.68 & 13.78 & $+0.10$ & 80.92 & 82.32 & $+1.40$ & $-1.5$ \\
-XGBoost      & 14.17 & 14.25 & $+0.09$ & 79.63 & 80.18 & $+0.55$ & $-2.8$ \\
-LightGBM     & 13.56 & 13.78 & $+0.22$ & 79.53 & 80.34 & $+0.80$ & $-2.9$ \\
-PatchTST     & 12.78 & 12.66 & $-0.13$ & 78.29 & 79.23 & $+0.94$ & $-4.5$ \\
-iTransformer & 12.68 & 12.98 & $+0.30$ & 78.89 & 77.65 & $-1.25$ & $-1.9$ \\
-TimeXer      & 12.57 & 12.64 & $+0.07$ & 77.81 & 78.35 & $+0.53$ & $-10.9$ \\
-Informer     & 13.20 & 13.00 & $-0.20$ & 79.07 & 80.14 & $+1.07$ & $-5.6$ \\
-Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ & $-21.3$ \\
+LSTM         & 13.99 & 14.05 & $+0.06$ & 80.40 & 81.43 & $+1.03$ \\
+GRU          & 14.18 & 14.18 & $+0.01$ & 80.41 & 81.79 & $+1.38$ \\
+DLinear      & 13.68 & 13.78 & $+0.10$ & 80.92 & 82.32 & $+1.40$ \\
+XGBoost      & 14.17 & 14.25 & $+0.09$ & 79.63 & 80.18 & $+0.55$ \\
+LightGBM     & 13.56 & 13.78 & $+0.22$ & 79.53 & 80.34 & $+0.80$ \\
+PatchTST     & 12.78 & 12.66 & $-0.13$ & 78.29 & 79.23 & $+0.94$ \\
+iTransformer & 12.68 & 12.98 & $+0.30$ & 78.89 & 77.65 & $-1.25$ \\
+TimeXer      & 12.57 & 12.64 & $+0.07$ & 77.81 & 78.35 & $+0.53$ \\
+Informer     & 13.20 & 13.00 & $-0.20$ & 79.07 & 80.14 & $+1.07$ \\
+Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ \\
 \midrule
-\textbf{Mean} & & & $\mathbf{+0.05}$ & & & $\mathbf{+0.64}$ & \\
+\textbf{Mean} & & & $\mathbf{+0.05}$ & & & $\mathbf{+0.64}$ \\
 \bottomrule
 \end{tabular}
-\caption{Median NRMSE (\%) on the real zero-shot set without and with the
-seven-channel weather (change $=$ with $-$ without, from unrounded values); the
-last column repeats the simulated commercial change of Table~\ref{tab:weather}.}
+\caption{Median NRMSE (\%) on the real zero-shot set; lower is better.
+Change: with $-$ without weather, computed from unrounded values.}
 \label{tab:weather-real}
 \end{table}
 
