@@ -38,37 +38,35 @@ validation split, evaluation metrics, gather the relevant weather features and b
  published forecasting models: PatchTST, iTransformer, TimeXer, Informer,
 Crossformer, and DLinear, alongside recurrent (LSTM, GRU) and gradient-boosted
 (XGBoost, LightGBM) baselines 
-Three results
+Two results
 follow. First, on the seven real-world datasets (1{,}923 buildings, zero-shot), the
 strongest model (TimeXer, $12.57\%$ commercial NRMSE) surpasses the value reported
 for the benchmark's largest pretrained transformer. Second,
-weather inputs that yield large gains up to $-21\%$ NRMSE for
-Crossformer on the simulated do not transfer to real zero-shot
-buildings: supplying the same seven weather channels, fetched and validated leaves real-building error essentially unchanged
+weather inputs yield large gains up to $-21\%$ NRMSE for
+Crossformer on the simulated, however, it does not transfer to real buildings remaining almost unchanged
 (mean commercial NRMSE change $+0.05$). This exposes a concrete simulated-to-real
-gap in learned weather sensitivity that a benchmark reporting only in-distribution
+gap in learned weather sensitivity that a benchmark reporting only
 weather ablations would miss.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:intro}
 Accurate short-term load forecasting (STLF) is crucial to power-system scheduling,
-demand response, and the integration of variable renewable generation. As
+demand response, together with the rise of intermittent energy sources. As
 demand-side behavior diversifies, forecasting increasingly relies not only on
 historical load but also on exogenous drivers such as weather and calendar
 effects \citep{buildingsbench2023}. Deep learning now dominates the task, yet
-progress has been fragmented across proprietary datasets and inconsistent
+progress has been fragmented across different datasets and inconsistent
 evaluation protocols, which makes cross-study comparison difficult.
 
 BuildingsBench \citep{buildingsbench2023} addressed this fragmentation by releasing
 Buildings-900K a corpus of roughly 900{,}000 simulated buildings for
 pretraining together with a standardized zero-shot evaluation over seven
-real-world datasets, fixed preprocessing, and a public leaderboard. Its headline
-models are a purpose-built Transformer with a Gaussian or tokenized output head.
-Since its release, however, the general time-series forecasting community has
+real-world and a simulated dataset. Its headline
+models are Transformers with a Gaussian or tokenized output head.
+Since its release, the general time-series forecasting community has
 converged on a different set of standard architectures PatchTST, iTransformer,
-TimeXer, and others that have never been evaluated under the BuildingsBench
-protocol. Two questions therefore remain open: how do these now-canonical
+TimeXer, and others that have never been evaluated under the BuildingsBench benchmark. Two questions therefore remain open: how do these mordern 
 forecasters perform on this benchmark relative to persistence and to the
 benchmark's own model family, and how much do the benchmark's weather inputs
 actually contribute, in-distribution and under the zero-shot shift to real
@@ -121,7 +119,7 @@ differences, not capacity, drive the comparison.
 \label{sec:dataset}
 We train on a subsample of $N=20{,}000$ buildings from Buildings-900K, drawn from
 the official weekly-sampled index file (the smallest official index that covers
-$20{,}000$ buildings holds $10^{5}$). This size is chosen in light of the original
+$20{,}000$ buildings holds $10^{5}$). This size is chose because of the original
 benchmark's own scaling analysis, which finds that zero-shot commercial performance
 improves with the number of pretraining buildings as a \emph{power law with
 diminishing returns}, the bulk of the gain accruing within roughly the first
@@ -132,9 +130,8 @@ within a single-GPU (Colab) budget. We evaluate on two held-out sets: (i) the of
 ($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}923$ buildings
 ($970$ commercial, $953$ residential) pooled from seven open datasets (BDG-2,
 Borealis, Electricity, IDEAL, LCL, SMART, Sceaux). Multi-year files of the same
-physical building are concatenated into one continuous series, matching the
-official loader; our building count agrees with the benchmark's reported ``over
-1{,}900'' real buildings. Figure~\ref{fig:eda} characterizes the data: the load
+physical building are concatenated into one continuous series.
+Figure~\ref{fig:eda} characterizes the data: the load
 heatmaps show the strong diurnal and seasonal structure forecasting must capture
 and the differing commercial/residential profiles, and the weather--load
 correlation panel motivates the weather-value analysis of Section~\ref{sec:weather}.
