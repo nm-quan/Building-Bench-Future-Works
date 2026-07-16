@@ -112,9 +112,7 @@ include Informer's ProbSparse attention \citep{informer} and Crossformer's
 two-stage cross-dimension attention \citep{crossformer}. As a linear control we
 include DLinear \citep{dlinear}, which questioned whether transformers are
 necessary at all. We retain recurrent (LSTM, GRU) and gradient-boosted tree
-(XGBoost, LightGBM) baselines, which remain competitive in operational STLF. Each
-transformer is scaled to a common $\geq7$M-parameter budget so that architectural
-differences, not capacity, drive the comparison.
+(XGBoost, LightGBM) baselines, which remain competitive in operational STLF. 
 
 \section{Methodology}
 \label{sec:method}
@@ -123,18 +121,17 @@ differences, not capacity, drive the comparison.
 \label{sec:dataset}
 We train on a subsample of $N=20{,}000$ buildings from Buildings-900K, drawn from
 the official weekly-sampled index file (the smallest official index that covers
-$20{,}000$ buildings holds $10^{5}$). This size is chose because of the original
+$20{,}000$ buildings holds $10^{5}$). This size is chosen because of the original
 benchmark's own scaling analysis, which finds that zero-shot commercial performance
 improves with the number of pretraining buildings as a \emph{power law with
 diminishing returns}, the bulk of the gain accruing within roughly the first
 $10^{3}$ buildings \citep{buildingsbench2023}. Our $20{,}000$-building sample
 therefore sits an order of magnitude beyond that knee capturing most of the
 attainable pretraining benefit while remaining trainable for every architecture
-within a single-GPU (Colab) budget. We evaluate on two held-out sets: (i) the official \emph{Buildings-900K-test} simulated split
+within a single-GPU. We evaluate on two held-out sets: (i) the official \emph{Buildings-900K-test} simulated split
 ($N=2{,}928$ buildings), and (ii) a real-world zero-shot set of $1{,}923$ buildings
 ($970$ commercial, $953$ residential) pooled from seven open datasets (BDG-2,
-Borealis, Electricity, IDEAL, LCL, SMART, Sceaux). Multi-year files of the same
-physical building are concatenated into one continuous series.
+Borealis, Electricity, IDEAL, LCL, SMART, Sceaux).
 Figure~\ref{fig:eda} characterizes the data: the load
 heatmaps show the strong diurnal and seasonal structure forecasting must capture
 and the differing commercial/residential profiles, and the weather--load
@@ -168,9 +165,7 @@ correlation panel motivates the weather-value analysis of Section~\ref{sec:weath
 We use the benchmark's own already-fit transforms rather than re-fitting them: a
 global Box--Cox transform on load and a per-channel standardization of the seven
 official weather channels (temperature, humidity, wind speed, wind direction, and
-global horizontal, direct normal, and diffuse horizontal radiation). Both are
-downloaded from the benchmark's public artifact bucket and validated at load time
-by a numeric round-trip check. The load transform is the Box--Cox power transform
+global horizontal, direct normal, and diffuse horizontal radiation). The load transform is the Box--Cox power transform
 \citep{boxcox1964}
 \begin{equation}
 T_{\lambda}(y)=
@@ -180,28 +175,20 @@ T_{\lambda}(y)=
 \end{cases}
 \label{eq:boxcox}
 \end{equation}
-with $\epsilon=10^{-6}$ (Box--Cox requires strictly positive input), the output
-standardized to zero mean and unit variance, and $\lambda$ fit once, globally, on
-the pooled pretraining load rather than per building---all exactly as in the
-official implementation. Calendar features (day-of-year, day-of-week,
+with $\epsilon=10^{-6}$.
+Calendar features (day-of-year, day-of-week,
 hour-of-day) are linearly scaled to $[-1,1]$, matching the official transform (not
 sinusoidally encoded). The context length is $L=168$h and the forecast horizon is
-$H=24$h. For reproducibility we note that Buildings-900K parquet rows are not
-stored chronologically ($>99.9\%$ of adjacent rows are non-consecutive in time);
-every window is therefore built from timestamp-sorted, monotonicity-checked series.
+$H=24$h. 
 
 \subsection{Training}
 \label{sec:training}
-Each neural model maps the Box--Cox-transformed load history and exogenous
+Each model maps the Box--Cox transformed load history and exogenous
 features to a Gaussian predictive distribution $(\mu,\sigma)$ over the 24-hour
 horizon and is trained by minimizing the Gaussian negative log-likelihood,
 matching the benchmark's own probabilistic head \citep{buildingsbench2023}. The
-optimization recipe (Table~\ref{tab:hparams}) follows current standard practice
-for deep forecasters: AdamW \citep{adamw} with a warmup--cosine learning-rate
-schedule and early stopping. Every transformer baseline is sized to
-$\geq7\times10^{6}$ parameters in both conditions (Table~\ref{tab:compute}) so
-that weaker performance cannot be attributed to insufficient capacity, and all
-models are trained under two conditions: \textbf{A} (without weather; load and
+optimization set up (Table~\ref{tab:hparams}) follows: AdamW \citep{adamw} with a warmup--cosine learning-rate
+schedule and early stopping. Every models are trained under two conditions: \textbf{A} (without weather; load and
 calendar only) and \textbf{B} (with weather; the seven official channels added as
 exogenous inputs).
 
@@ -239,7 +226,7 @@ Validation & last 336\,h, 4 windows per building per epoch \\
 Random seed & 0 \\
 \bottomrule
 \end{tabular}
-\caption{Training hyperparameters, shared by all neural models and both
+\caption{Training hyperparameters, shared by all models in both
 conditions.}
 \label{tab:hparams}
 \end{table}
@@ -288,9 +275,7 @@ $r>0.95$ with zero best-lag (a timezone slip shifts the diurnal cycle and moves 
 best-lag off zero) and a mean offset below $3^\circ$C (a unit error inflates it).
 All ten source locations passed, with $r\in[0.958,0.995]$ and temperature offsets
 below $1.1^\circ$C, confirming correct alignment before any real-building weather
-result is computed. This acquired weather is applied only at evaluation time the
-condition-B checkpoints are reused unchanged so any change in real-building error
-reflects the value of the weather inputs, not additional training.
+result is computed.
 
 \section{Results}
 \label{sec:results}
@@ -307,7 +292,7 @@ shows that this in-distribution signal does not survive transfer to real buildin
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.72\textwidth]{figures/loss_curves.png}
-  \caption{Validation NLL per epoch (solid: with weather; dashed: without).}
+  \caption{Models' validation loss curves per epoch }
   \label{fig:loss}
 \end{figure}
 
@@ -348,14 +333,12 @@ B: with weather.}
 
 \subsection{Benchmark Results}
 \label{sec:benchmark}
-Table~\ref{tab:benchmark} reports the main benchmark. Our pipeline reproduces the
-benchmark's own persistence values closely (Average Persistence: $33.51$ here vs.\
-$33.10$ published on the simulated set), validating the re-implementation.
-\textbf{On the simulated test set}, every trained model beats all three
+Table~\ref{tab:benchmark} first shows 
+\textbf{on the simulated test set}, every trained model beats all three
 persistence baselines by a wide margin in both conditions; the
 best commercial NRMSE is Crossformer with weather ($14.68$), then TimeXer
 ($16.43$), and without weather PatchTST ($18.36$) and TimeXer ($18.45$) lead.
-\textbf{On the real-world zero-shot set} the ordering shifts: TimeXer is strongest
+\textbf{On the real-world zero-shot set} the ordering changes: TimeXer is strongest
 ($12.57$ commercial), narrowly ahead of iTransformer ($12.68$), PatchTST ($12.78$),
 and Crossformer ($12.78$). The clear simulated-set Crossformer lead does not fully
 transfer, consistent with the real data lying outside the simulated pretraining
@@ -518,11 +501,7 @@ building types (the closest being Transformer-L (Gaussian), $13.31\%$/$79.34\%$)
 while the original tokenized variants generalize poorly to residential load (up to
 $101\%$). Original values are taken from the benchmark paper and its public
 leaderboard; the leaderboard tabulates Transformer-S/M on the real set only, so
-their simulated cells are unavailable. Two caveats bound the comparison: the
-original models were pretrained on the full $\sim$900K corpus rather than our
-$20$K subsample, and small differences may reflect implementation and
-evaluation-harness details. It should therefore be read as a cross-setup
-reference, not a controlled head-to-head.
+their simulated cells are unavailable. 
 
 \begin{table}[H]
 \centering
