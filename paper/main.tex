@@ -476,37 +476,52 @@ Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ & $-21.3$ \\
 
 \subsection{Comparison with the Original Benchmark Model}
 \label{sec:vs-original}
-Our best no-weather model is competitive with the benchmark's own largest
-pretrained transformer on the real zero-shot set (Table~\ref{tab:vs-paper}). TimeXer,
-trained on a $20{,}000$-building subsample without weather, attains $12.57\%$
-commercial and $77.81\%$ residential NRMSE, both below the reported Transformer-L
-(Gaussian). Two caveats bound this comparison: the original models were pretrained
-on the full $\sim$900K corpus rather than our $20$K subsample, and small
-differences may reflect implementation and evaluation-harness details. The result
-should therefore be read as ``competitive with, and on these two aggregates ahead
-of, the reported values,'' not as a controlled head-to-head.
+The comparison with the original benchmark's pretrained transformers splits by
+regime (Table~\ref{tab:vs-paper}). On the simulated in-distribution test set the
+original full-corpus--pretrained Transformer-L is stronger, as the benchmark's own
+data-scaling law predicts (Section~\ref{sec:dataset}): its tokenized variant reaches
+$12.91\%$ commercial NRMSE against our best without-weather $18.36\%$ (PatchTST),
+though our weather-augmented Crossformer ($14.68\%$, Table~\ref{tab:weather}) closes
+much of that gap and overtakes the original Gaussian variant ($15.10\%$). The
+ordering reverses under the zero-shot shift to real buildings: our TimeXer, trained
+on a $20{,}000$-building subsample without weather, attains $12.57\%$ commercial and
+$77.81\%$ residential NRMSE---both below the reported Transformer-L (Gaussian)
+($13.31\%$/$79.34\%$)---while the original tokenized variant generalizes poorly to
+residential load ($95.34\%$). Two caveats bound the comparison: the original models
+were pretrained on the full $\sim$900K corpus rather than our $20$K subsample, and
+small differences may reflect implementation and evaluation-harness details. It
+should therefore be read as a cross-setup reference, not a controlled head-to-head.
 
 \begin{table}[H]
 \centering
-\caption{Real-world zero-shot NRMSE (\%, lower is better): our best model (no
-weather) vs.\ values reported for the benchmark's pretrained transformers
-\citep{buildingsbench2023}.
-Original models pretrained on the full corpus; ours on a 20K subsample (see caveats
-in text).}
+\caption{Comparison with the original benchmark on both test sets: median NRMSE (\%)
+and RPS (Gaussian CRPS), lower is better. Original values are the full-corpus
+pretrained models of \citet{buildingsbench2023}; ours use a $20{,}000$-building
+subsample without weather. RPS is undefined (--) for the copy-persistence variants.
+Best real commercial NRMSE in \textbf{bold}. The setups differ in pretraining scale
+and harness (see caveats in text).}
 \label{tab:vs-paper}
-\begin{tabular}{llrr}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l rr rr rr rr}
 \toprule
-Source & Model & Com.\ NRMSE & Res.\ NRMSE \\
+& \multicolumn{4}{c}{\textbf{Simulated (Buildings-900K-test)}} & \multicolumn{4}{c}{\textbf{Real (zero-shot)}} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+& \multicolumn{2}{c}{Commercial} & \multicolumn{2}{c}{Residential} & \multicolumn{2}{c}{Commercial} & \multicolumn{2}{c}{Residential} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+Model & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
 \midrule
-\multirow{4}{*}{\citet{buildingsbench2023}}
-  & Transformer-L (Gaussian) & 13.31 & 79.34 \\
-  & Transformer-M (Gaussian) & 13.28 & 92.60 \\
-  & Transformer-S (Gaussian) & 13.97 & 102.30 \\
-  & Persistence Ensemble     & 16.68 & 77.88 \\
+\multicolumn{9}{l}{\emph{Original benchmark \citep{buildingsbench2023}, full-corpus pretraining}} \\
+Persistence Ensemble      & 33.10 & 4.58 & 54.77 & 0.72  & 16.68 & 5.88 & 77.88 & 0.063 \\
+Previous Day Persistence  & 34.91 & --   & 59.38 & --    & 16.96 & --   & 98.41 & --    \\
+Previous Week Persistence & 32.05 & --   & 74.08 & --    & 19.39 & --   & 99.77 & --    \\
+Transformer-L (Tokens)    & 12.91 & 2.45 & 44.29 & 0.875 & 14.46 & 5.62 & 95.34 & 0.152 \\
+Transformer-L (Gaussian)  & 15.10 & 2.07 & 43.52 & 0.578 & 13.31 & 5.23 & 79.34 & 0.072 \\
 \midrule
-\multirow{2}{*}{This study}
-  & \textbf{TimeXer}         & \textbf{12.57} & \textbf{77.81} \\
-  & iTransformer             & 12.68 & 78.89 \\
+\multicolumn{9}{l}{\emph{This study, 20K subsample, without weather}} \\
+Persistence (avg)         & 33.51 & 5.70 & 55.46 & 0.72  & 16.44 & 6.83 & 78.02 & 0.069 \\
+Crossformer               & 18.65 & 2.85 & 44.49 & 0.58  & 12.78 & 4.88 & 78.67 & 0.068 \\
+TimeXer                   & 18.45 & 2.71 & 44.03 & 0.57  & \textbf{12.57} & 4.83 & 77.81 & 0.067 \\
 \bottomrule
 \end{tabular}
 \end{table}
