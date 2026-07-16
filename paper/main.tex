@@ -497,7 +497,8 @@ should therefore be read as a cross-setup reference, not a controlled head-to-he
 \caption{Comparison with the original benchmark on both test sets: median NRMSE (\%)
 and RPS (Gaussian CRPS), lower is better. Original values are the full-corpus
 pretrained models of \citet{buildingsbench2023}; ours use a $20{,}000$-building
-subsample without weather. RPS is undefined (--) for the copy-persistence variants.
+subsample, without and with weather as labeled. RPS is undefined (--) for the
+copy-persistence variants.
 Best real commercial NRMSE in \textbf{bold}. The setups differ in pretraining scale
 and harness (see caveats in text).}
 \label{tab:vs-paper}
@@ -522,6 +523,10 @@ Transformer-L (Gaussian)  & 15.10 & 2.07 & 43.52 & 0.578 & 13.31 & 5.23 & 79.34 
 Persistence (avg)         & 33.51 & 5.70 & 55.46 & 0.72  & 16.44 & 6.83 & 78.02 & 0.069 \\
 Crossformer               & 18.65 & 2.85 & 44.49 & 0.58  & 12.78 & 4.88 & 78.67 & 0.068 \\
 TimeXer                   & 18.45 & 2.71 & 44.03 & 0.57  & \textbf{12.57} & 4.83 & 77.81 & 0.067 \\
+\midrule
+\multicolumn{9}{l}{\emph{This study, 20K subsample, with weather}} \\
+Crossformer               & 14.68 & 2.18 & 40.33 & 0.50  & 12.80 & 4.86 & 78.65 & 0.067 \\
+TimeXer                   & 16.43 & 2.46 & 41.22 & 0.52  & 12.64 & 4.84 & 78.35 & 0.067 \\
 \bottomrule
 \end{tabular}
 \end{table}
