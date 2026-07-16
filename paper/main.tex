@@ -10,6 +10,10 @@
 \usepackage{xcolor}
 \usepackage{caption}
 \usepackage{subcaption}
+% Uniform caption style: small italic, centered, placed below every float.
+\captionsetup{font={small,it},labelfont={small,it},labelsep=period,
+              justification=centering,skip=5pt,position=below}
+\captionsetup[sub]{font={footnotesize,it}}
 \usepackage{authblk}
 \usepackage{placeins}
 \usepackage{float}
@@ -140,8 +144,7 @@ correlation panel motivates the weather-value analysis of Section~\ref{sec:weath
   \centering
   \begin{subfigure}[b]{0.9\textwidth}
     \includegraphics[width=\textwidth]{figures/load_heatmap.png}
-    \caption{Mean normalized load by day-of-year (x) and hour-of-day (y),
-    commercial vs.\ residential.}
+    \caption{Mean normalized load by day-of-year and hour-of-day.}
     \label{fig:eda-heatmap}
   \end{subfigure}
   \\[0.5em]
@@ -167,7 +170,20 @@ global Box--Cox transform on load and a per-channel standardization of the seven
 official weather channels (temperature, humidity, wind speed, wind direction, and
 global horizontal, direct normal, and diffuse horizontal radiation). Both are
 downloaded from the benchmark's public artifact bucket and validated at load time
-by a numeric round-trip check. Calendar features (day-of-year, day-of-week,
+by a numeric round-trip check. The load transform is the Box--Cox power transform
+\citep{boxcox1964}
+\begin{equation}
+T_{\lambda}(y)=
+\begin{cases}
+\dfrac{(y+\epsilon)^{\lambda}-1}{\lambda}, & \lambda\neq 0,\\[6pt]
+\log\,(y+\epsilon), & \lambda=0,
+\end{cases}
+\label{eq:boxcox}
+\end{equation}
+with $\epsilon=10^{-6}$ (Box--Cox requires strictly positive input), the output
+standardized to zero mean and unit variance, and $\lambda$ fit once, globally, on
+the pooled pretraining load rather than per building---all exactly as in the
+official implementation. Calendar features (day-of-year, day-of-week,
 hour-of-day) are linearly scaled to $[-1,1]$, matching the official transform (not
 sinusoidally encoded). The context length is $L=168$h and the forecast horizon is
 $H=24$h. For reproducibility we note that Buildings-900K parquet rows are not
@@ -176,18 +192,57 @@ every window is therefore built from timestamp-sorted, monotonicity-checked seri
 
 \subsection{Training}
 \label{sec:training}
-Each neural model maps the RevIN-normalized, Box--Cox-transformed load history and
-exogenous features to a Gaussian predictive distribution $(\mu_n,\sigma_n)$ over
-the 24-hour horizon, trained with the Gaussian negative log-likelihood using AdamW
-and a cosine learning-rate schedule with warmup, for up to $200$ epochs with early
-stopping (patience $20$). Following the benchmark, validation uses a temporal
-holdout of the final two weeks of the year on the AMY2018-release buildings (a
-genuine chronological year), rather than a random building-level split. Every
-transformer baseline is sized to $\geq7\times10^{6}$ parameters in both conditions
-(Table~\ref{tab:compute}) so that weaker performance cannot be attributed to
-insufficient capacity. All models are evaluated under two conditions: \textbf{A}
-(without weather; load and calendar only) and \textbf{B} (with weather; the seven
-official channels added as exogenous inputs).
+Each neural model maps the Box--Cox-transformed load history and exogenous
+features to a Gaussian predictive distribution $(\mu,\sigma)$ over the 24-hour
+horizon and is trained by minimizing the Gaussian negative log-likelihood,
+matching the benchmark's own probabilistic head \citep{buildingsbench2023}. The
+optimization recipe (Table~\ref{tab:hparams}) follows current standard practice
+for deep forecasters: AdamW \citep{adamw} with a warmup--cosine learning-rate
+schedule and early stopping. Every transformer baseline is sized to
+$\geq7\times10^{6}$ parameters in both conditions (Table~\ref{tab:compute}) so
+that weaker performance cannot be attributed to insufficient capacity, and all
+models are trained under two conditions: \textbf{A} (without weather; load and
+calendar only) and \textbf{B} (with weather; the seven official channels added as
+exogenous inputs).
+
+Before entering each model, the load history is normalized per window by
+reversible instance normalization (RevIN, \citealp{revin}), which removes the
+per-building level and scale that would otherwise dominate zero-shot transfer:
+\begin{equation}
+\tilde{y}_t=\frac{y_t-\mu_w}{\sigma_w},\qquad
+\mu_w=\frac{1}{L}\sum_{t=1}^{L}y_t,\qquad
+\sigma_w=\max\!\Big(\mathrm{std}\big(y_{1:L}\big),\,10^{-3}\Big),
+\label{eq:revin}
+\end{equation}
+and the predicted distribution is de-normalized as
+$\hat{\mu}=\mu_{\mathrm n}\,\sigma_w+\mu_w$ and
+$\hat{\sigma}=\big(\mathrm{softplus}(s_{\mathrm n})+10^{-3}\big)\,\sigma_w$,
+where $(\mu_{\mathrm n},s_{\mathrm n})$ are the network outputs. Following the
+benchmark, validation is a temporal holdout of the final two weeks of the year on
+the AMY2018-release buildings (a genuine chronological year), rather than a
+random building-level split.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Optimizer & AdamW \\
+Learning-rate schedule & warmup + cosine decay, peak $4\times10^{-4}$ \\
+Batch size / steps per epoch & 512 / 300 \\
+Maximum epochs / early-stopping patience & 200 / 20 \\
+Loss & Gaussian negative log-likelihood \\
+Precision & bf16 mixed (fp32 for recurrent models) \\
+Context / forecast horizon & $L=168$\,h / $H=24$\,h \\
+Validation & last 336\,h, 4 windows per building per epoch \\
+Random seed & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Training hyperparameters, shared by all neural models and both
+conditions.}
+\label{tab:hparams}
+\end{table}
 
 \subsection{Evaluation}
 \label{sec:evaluation}
@@ -201,9 +256,18 @@ metric is NRMSE (coefficient of variation of RMSE), computed per building as
 \end{equation}
 and aggregated as the \emph{median across buildings} within each building type,
 with 95\% bootstrap confidence intervals over $2{,}000$ resamples. The
-probabilistic metric (RPS) is the Gaussian continuous ranked probability score,
-reported in physical kWh via the benchmark's inverse-Box--Cox Gaussian
-approximation. Pairwise significance against the average-persistence baseline uses
+probabilistic metric (RPS) is the closed-form continuous ranked probability score
+of the Gaussian forecast \citep{gneiting2007},
+\begin{equation}
+\mathrm{RPS}\big(\mathcal{N}(\mu,\sigma^{2}),\,y\big)=
+\sigma\left[z\big(2\Phi(z)-1\big)+2\varphi(z)-\frac{1}{\sqrt{\pi}}\right],
+\qquad z=\frac{y-\mu}{\sigma},
+\label{eq:crps}
+\end{equation}
+where $\Phi$ and $\varphi$ are the standard normal distribution and density
+functions; it is reported in physical kWh by passing $\mu\pm\sigma$ through the
+inverse Box--Cox transform and averaging the two half-widths (the benchmark's own
+Gaussian approximation). Pairwise significance against the average-persistence baseline uses
 a paired Wilcoxon signed-rank test with Holm--Bonferroni correction; overall
 model-set differences use a Friedman test with Nemenyi post-hoc ranking.
 
@@ -245,10 +309,7 @@ shows that this in-distribution signal does not survive transfer to real buildin
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.72\textwidth]{figures/loss_curves.png}
-  \caption{Validation Gaussian NLL vs.\ epoch (solid = with weather, dashed =
-  without weather), from training logs. Attention models (Crossformer) show a much
-  larger gap between their without-weather and with-weather runs than recurrent
-  models (LSTM).}
+  \caption{Validation NLL per epoch (solid: with weather; dashed: without).}
   \label{fig:loss}
 \end{figure}
 
@@ -260,9 +321,6 @@ recurrent (LSTM, GRU) models are one to two orders of magnitude smaller.
 
 \begin{table}[H]
 \centering
-\caption{Model size and training cost (single A100-SXM4-40GB). Persistence
-baselines are closed-form. A = without weather, B = with weather.}
-\label{tab:compute}
 \begin{tabular}{llrrrr}
 \toprule
 Model & Cond.\ & Params & Epochs & Train (s) & Eval (s) \\
@@ -285,6 +343,9 @@ Crossformer  & A & 11{,}963{,}568 & 86  & 1{,}633 & 39.4 \\
 Crossformer  & B & 17{,}050{,}608 & 152 & 4{,}125 & 58.7 \\
 \bottomrule
 \end{tabular}
+\caption{Model size and training cost on one A100 GPU. A: without weather;
+B: with weather.}
+\label{tab:compute}
 \end{table}
 
 \subsection{Benchmark Results}
@@ -304,15 +365,6 @@ distribution.
 
 \begin{table}[H]
 \centering
-\caption{Benchmark results: median NRMSE (\%) and RPS (Gaussian CRPS, kWh) across
-buildings, by type; lower is better for both metrics. \textbf{A} = without weather,
-\textbf{B} = with weather. Real condition-B NRMSE is the validated seven-channel
-weather result of Table~\ref{tab:weather-real}, repeated here for completeness for
-both the neural and the tree models (persistence is weather-invariant, so its
-condition-B real entry is omitted). Best real condition-A entry in \textbf{bold}.
-RPS is undefined (--) for the copy-persistence baselines (no predictive variance);
-the tree models' real without-weather RPS was not recorded (--).}
-\label{tab:benchmark}
 \small
 \begin{tabular}{ll rr rr rr}
 \toprule
@@ -363,6 +415,11 @@ Model & Cond.\ & NRMSE & RPS & NRMSE & RPS & NRMSE & RPS \\
      & B & \textbf{14.68} & \textbf{2.18} & \textbf{40.33} & \textbf{0.50} & 12.80 / 78.65 & 4.86 / 0.067 \\
 \bottomrule
 \end{tabular}
+\caption{Median NRMSE (\%) and RPS (kWh) by building type; lower is better.
+A: without weather; B: with weather (real condition-B uses the weather of
+Section~\ref{sec:weather-data}). Best simulated condition-B and real
+condition-A entries in bold; --: unavailable.}
+\label{tab:benchmark}
 \end{table}
 
 \textbf{Statistical significance.} A Friedman test across the full model set rejects
@@ -387,10 +444,6 @@ distribution matches training.
 
 \begin{table}[H]
 \centering
-\caption{Weather value on the simulated test set: commercial NRMSE (\%, lower is
-better) without weather and with weather, and the relative reduction (more negative
-means a larger gain from weather). Sorted by gain.}
-\label{tab:weather}
 \begin{tabular}{lrrr}
 \toprule
 Model & No weather & Weather & Change (\%) \\
@@ -407,6 +460,9 @@ LSTM         & 21.17 & 20.80 & $-1.7$ \\
 DLinear      & 25.64 & 25.26 & $-1.5$ \\
 \bottomrule
 \end{tabular}
+\caption{Commercial NRMSE (\%) on the simulated test set without and with
+weather, sorted by relative change.}
+\label{tab:weather}
 \end{table}
 
 The same weather inputs provide no benefit on real buildings. Using the validated
@@ -426,13 +482,6 @@ conclusion.
 
 \begin{table}[H]
 \centering
-\caption{Weather value on the real zero-shot set: median NRMSE (\%) without weather
-and with the full seven-channel weather, and the change (with minus without;
-positive means weather hurts). Changes are computed from unrounded values and may
-differ from the rounded columns by up to $0.01$. For reference, the final column
-repeats each model's \emph{simulated} commercial weather gain from
-Table~\ref{tab:weather}. Persistence is closed-form and weather-invariant (omitted).}
-\label{tab:weather-real}
 \small
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{lrrr rrr r}
@@ -455,6 +504,10 @@ Crossformer  & 12.78 & 12.80 & $+0.02$ & 78.67 & 78.65 & $-0.02$ & $-21.3$ \\
 \textbf{Mean} & & & $\mathbf{+0.05}$ & & & $\mathbf{+0.64}$ & \\
 \bottomrule
 \end{tabular}
+\caption{Median NRMSE (\%) on the real zero-shot set without and with the
+seven-channel weather (change $=$ with $-$ without, from unrounded values); the
+last column repeats the simulated commercial change of Table~\ref{tab:weather}.}
+\label{tab:weather-real}
 \end{table}
 
 \subsection{Comparison with the Original Benchmark Model}
@@ -471,25 +524,16 @@ on a $20{,}000$-building subsample without weather, attains $12.57\%$ commercial
 $77.81\%$ residential NRMSE below every reported Transformer-S/M/L variant on both
 building types (the closest being Transformer-L (Gaussian), $13.31\%$/$79.34\%$) 
 while the original tokenized variants generalize poorly to residential load (up to
-$101\%$). Two caveats bound the comparison: the original models
-were pretrained on the full $\sim$900K corpus rather than our $20$K subsample, and
-small differences may reflect implementation and evaluation-harness details. It
-should therefore be read as a cross-setup reference, not a controlled head-to-head.
+$101\%$). Original values are taken from the benchmark paper and its public
+leaderboard; the leaderboard tabulates Transformer-S/M on the real set only, so
+their simulated cells are unavailable. Two caveats bound the comparison: the
+original models were pretrained on the full $\sim$900K corpus rather than our
+$20$K subsample, and small differences may reflect implementation and
+evaluation-harness details. It should therefore be read as a cross-setup
+reference, not a controlled head-to-head.
 
 \begin{table}[H]
 \centering
-\caption{Comparison with the original benchmark on both test sets: median NRMSE (\%)
-and RPS, lower is better. Original real values are the benchmark's full-corpus
-pretrained models from its public leaderboard \citep{buildingsbench2023}; simulated
-values are tabulated by the benchmark only for Transformer-L (the Transformer-S/M
-simulated results appear only in the paper's scaling figure, shown as --). Ours use
-a $20{,}000$-building subsample, without and with weather as labeled. RPS is
-undefined (--) for the copy-persistence variants. The best (lowest) value in each
-metric column is in \textbf{bold}: the original full-corpus models lead the
-simulated in-distribution NRMSE, while our models lead the real zero-shot columns
-(except residential RPS, lowest for the persistence ensemble). The setups differ in
-pretraining scale and harness (see caveats in text).}
-\label{tab:vs-paper}
 \small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l rr rr rr rr}
@@ -521,6 +565,9 @@ Crossformer               & 14.68 & 2.18 & \textbf{40.33} & \textbf{0.50}  & 12.
 TimeXer                   & 16.43 & 2.46 & 41.22 & 0.52  & 12.64 & 4.84 & 78.35 & 0.067 \\
 \bottomrule
 \end{tabular}
+\caption{Comparison with the original benchmark: median NRMSE (\%) and RPS,
+lower is better. Best value per column in bold; --: not published or undefined.}
+\label{tab:vs-paper}
 \end{table}
 
 \subsection{Qualitative Forecasts}
@@ -535,8 +582,8 @@ around hour 7 and the afternoon peak around hour 15.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{figures/actual_versus_predicted.png}
-    \caption{Daily-average actual versus predicted load across a 24-hour forecast
-    horizon for the top-performing models.}
+    \caption{Daily-average actual versus predicted load over the 24-hour
+    horizon.}
     \label{fig:actual_vs_predicted}
 \end{figure}
 
