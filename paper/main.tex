@@ -16,8 +16,8 @@
 
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 
-\title{\textbf{Large-Scale Synthetic Pretraining with Weather Inputs for
-Short-Term Load Forecasting: An Evaluation on BuildingsBench 900K}}
+\title{\textbf{Large-Scale Pretraining enhanced with Weather Inputs for
+Short-Term Load Forecasting: An Extension on BuildingsBench 900K}}
 
 \author[1]{\todo{Author One}}
 \author[1]{\todo{Author Two}}
@@ -28,29 +28,23 @@ Short-Term Load Forecasting: An Evaluation on BuildingsBench 900K}}
 \maketitle
 
 \begin{abstract}
-Short-term load forecasting (STLF) underpins reliable and economical power-system
-operation, and the recent BuildingsBench benchmark has standardized its evaluation
-over a large-scale corpus of 900{,}000 simulated buildings together with seven
+Short-term load forecasting (STLF) is foundational to reliable and economical power-system
+operation. Recent effort has been spent in improving forecasting models by scaling them with new large-scale pretraining dataset.  BuildingsBench 900K is one of the contributor consisting of 900{,}000 simulated buildings together with seven
 real-world datasets. Its public leaderboard, however, fixes a particular model
 family, while the time-series forecasting literature has since converged on a
-different set of standard architectures that have never been evaluated under the
-same protocol. We re-implement BuildingsBench's exact preprocessing, temporal
-validation split, and median-aggregated metrics, and benchmark a broad set of
-canonical published forecasters---PatchTST, iTransformer, TimeXer, Informer,
+different set of standard architectures that have not yet been evaluated. Furthermore, the original paper has not scaled models with weather data. 
+We re-implement BuildingsBench's exact preprocessing, temporal
+validation split, evaluation metrics, gather the relevant weather features and benchmark a broad set of
+ published forecasting models: PatchTST, iTransformer, TimeXer, Informer,
 Crossformer, and DLinear, alongside recurrent (LSTM, GRU) and gradient-boosted
-(XGBoost, LightGBM) baselines---each transformer sized to a common
-$\geq$7M-parameter floor so that capacity is never a confound. Three results
-follow. First, our pipeline reproduces the benchmark's own persistence values to
-within $0.5$ NRMSE points, and on the simulated test set every trained model
-significantly outperforms the persistence baseline (Holm--Bonferroni-corrected
-Wilcoxon; Friedman $p<0.001$ across the model set).
-Second, on the seven real-world datasets (1{,}923 buildings, zero-shot), the
+(XGBoost, LightGBM) baselines 
+Three results
+follow. First, on the seven real-world datasets (1{,}923 buildings, zero-shot), the
 strongest model (TimeXer, $12.57\%$ commercial NRMSE) surpasses the value reported
-for the benchmark's largest pretrained transformer. Third, and most striking,
-weather inputs that yield large gains in-distribution---up to $-21\%$ NRMSE for
-Crossformer on the simulated set---\emph{do not transfer} to real zero-shot
-buildings: supplying the same seven weather channels, fetched and validated
-against reanalysis ground truth, leaves real-building error essentially unchanged
+for the benchmark's largest pretrained transformer. Second,
+weather inputs that yield large gains up to $-21\%$ NRMSE for
+Crossformer on the simulated do not transfer to real zero-shot
+buildings: supplying the same seven weather channels, fetched and validated leaves real-building error essentially unchanged
 (mean commercial NRMSE change $+0.05$). This exposes a concrete simulated-to-real
 gap in learned weather sensitivity that a benchmark reporting only in-distribution
 weather ablations would miss.
@@ -58,7 +52,7 @@ weather ablations would miss.
 
 \section{Introduction}
 \label{sec:intro}
-Accurate short-term load forecasting (STLF) is central to power-system scheduling,
+Accurate short-term load forecasting (STLF) is crucial to power-system scheduling,
 demand response, and the integration of variable renewable generation. As
 demand-side behavior diversifies, forecasting increasingly relies not only on
 historical load but also on exogenous drivers such as weather and calendar
